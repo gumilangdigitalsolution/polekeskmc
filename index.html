@@ -111,11 +111,15 @@
         const db = getFirestore(app);
         const appId = "poltekes-kmc-prod"; 
 
-        const formatGDriveLink = (link) => {
+        const formatGDriveLink = (link, isImage = false) => {
             if (!link) return "";
             const regex = /(?:\/d\/|id=)([\w-]+)/;
             const match = link.match(regex);
-            return match && match[1] ? `https://lh3.googleusercontent.com/d/${match[1]}` : link;
+            if (match && match[1]) {
+                if (isImage) return `https://lh3.googleusercontent.com/d/${match[1]}`;
+                return `https://drive.google.com/file/d/${match[1]}/view?usp=sharing`;
+            }
+            return link;
         };
 
         const DEFAULT_LOGO = "https://lh3.googleusercontent.com/d/1fhzH6iASjaulRO-ZHSPgTEdhudGPZeIq";
@@ -144,7 +148,6 @@
                 modal.classList.replace('hidden', 'flex');
                 pendingConfirmAction = action;
             } else {
-                // Fallback jika modal tidak ditemukan
                 if (confirm(message)) action();
             }
         };
@@ -186,7 +189,7 @@
                 const data = snapshot.data();
                 document.querySelectorAll('.univ-name').forEach(el => el.innerText = data.univName || 'Poltekes KMC');
                 const rawUrl = data.logoUrl || DEFAULT_LOGO;
-                const formattedUrl = formatGDriveLink(rawUrl);
+                const formattedUrl = formatGDriveLink(rawUrl, true);
                 document.querySelectorAll('.univ-logo').forEach(img => {
                     img.src = formattedUrl;
                     img.onerror = () => { if (img.src !== DEFAULT_LOGO) img.src = DEFAULT_LOGO; };
@@ -339,7 +342,7 @@
                     const MAX_SIZE = 400;
                     let w = img.width, h = img.height;
                     if (w > h) { if (w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; } }
-                    else { if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; } }
+                    else { if (h > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; } }
                     canvas.width = w; canvas.height = h;
                     ctx.drawImage(img, 0, 0, w, h);
                     const photoBase64 = canvas.toDataURL('image/jpeg', 0.7);
@@ -362,7 +365,7 @@
                 if(lList) lList.innerHTML = '';
                 snap.forEach(d => {
                     const data = d.data();
-                    const url = formatGDriveLink(data.url);
+                    const url = formatGDriveLink(data.url, false);
                     const icon = data.type === 'video' ? 'play-circle' : 'file-text';
                     if(sList) {
                         sList.innerHTML += `
@@ -377,8 +380,7 @@
                                     </div>
                                 </div>
                                 <div class="flex gap-2">
-                                    <button class="px-3 py-2 bg-slate-50 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-teal-100 transition shadow-sm">Lihat</button>
-                                    <button onclick="event.stopPropagation(); window.open('${url}', '_blank')" class="px-3 py-2 bg-teal-50 text-teal-700 rounded-xl text-[10px] font-black uppercase hover:theme-bg hover:text-white transition shadow-sm">Download</button>
+                                    <button class="px-3 py-2 bg-slate-50 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-teal-100 transition shadow-sm">Lihat Dokumen</button>
                                 </div>
                             </div>`;
                     }
@@ -390,7 +392,7 @@
                                     <span class="text-[8px] bg-white px-2 py-0.5 rounded border font-black uppercase text-slate-400">${data.type}</span>
                                 </div>
                                 <div class="flex gap-1">
-                                    <button onclick="window.open('${url}', '_blank')" class="flex-1 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[9px] font-black uppercase">Lihat</button>
+                                    <button onclick="window.open('${url}', '_blank')" class="flex-1 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[9px] font-black uppercase">Buka</button>
                                     <button onclick="window.editMaterial('${d.id}', '${data.title.replace(/'/g, "\\'")}', '${data.url}', '${data.type}')" class="flex-1 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-[9px] font-black uppercase">Edit</button>
                                     <button onclick="window.deleteMaterial('${d.id}')" class="flex-1 py-1.5 bg-red-50 text-red-600 rounded-lg text-[9px] font-black uppercase">Hapus</button>
                                 </div>
@@ -405,11 +407,10 @@
             e.preventDefault();
             const id = document.getElementById('mat-id').value;
             const title = document.getElementById('mat-title').value;
-            const url = document.getElementById('mat-url').value;
-            const type = document.getElementById('mat-type').value;
-            if(!title || !url) return alert("Lengkapi data materi.");
-            if (id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', id), { title, url, type });
-            else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), { title, url, type, timestamp: new Date().toISOString() });
+            const urlRaw = document.getElementById('mat-url').value;
+            if(!title || !urlRaw) return alert("Lengkapi data materi.");
+            if (id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', id), { title, url: urlRaw, type: document.getElementById('mat-type').value });
+            else await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), { title, url: urlRaw, type: document.getElementById('mat-type').value, timestamp: new Date().toISOString() });
             e.target.reset(); window.cancelEditMaterial();
         };
 
@@ -431,27 +432,92 @@
 
         window.deleteMaterial = (id) => window.requestConfirm("Hapus materi ini?", async () => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', id)));
 
-        // --- TUGAS ---
+        // --- TUGAS MAHASISWA ---
         window.submitTask = async (e) => {
             e.preventDefault();
+            const taskId = document.getElementById('task-id').value;
             const title = document.getElementById('task-title').value.trim();
             const link = document.getElementById('task-link').value.trim();
             if(!title || !link || !userDataGlobal) return alert("Lengkapi data tugas.");
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), {
-                nim: userDataGlobal.nim, name: userDataGlobal.name, title, link: formatGDriveLink(link), timestamp: new Date().toISOString()
-            });
-            alert("Tugas Terkirim!"); e.target.reset();
+
+            const taskData = {
+                nim: userDataGlobal.nim,
+                name: userDataGlobal.name,
+                title,
+                link: formatGDriveLink(link),
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                if(taskId) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId), taskData);
+                    showNotification("Berhasil", "Tugas telah diperbarui!");
+                } else {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), taskData);
+                    showNotification("Berhasil", "Tugas berhasil dikirim!");
+                }
+                e.target.reset();
+                window.cancelEditTask();
+            } catch (err) {
+                alert("Gagal mengirim tugas.");
+            }
+        };
+
+        window.editTask = (id, title, link) => {
+            document.getElementById('task-id').value = id;
+            document.getElementById('task-title').value = title;
+            document.getElementById('task-link').value = link;
+            document.getElementById('btn-submit-task').innerText = "Simpan Perubahan";
+            document.getElementById('btn-cancel-task').classList.remove('hidden');
+            document.getElementById('task-section-title').scrollIntoView({ behavior: 'smooth' });
+        };
+
+        window.cancelEditTask = () => {
+            document.getElementById('task-id').value = "";
+            document.getElementById('task-upload-form').reset();
+            document.getElementById('btn-submit-task').innerText = "Kirim Tugas Sekarang";
+            document.getElementById('btn-cancel-task').classList.add('hidden');
         };
 
         const startTaskListener = () => {
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), (snap) => {
-                const lList = document.getElementById('lecturer-task-list');
-                if(!lList) return;
-                lList.innerHTML = '';
+                const lecturerList = document.getElementById('lecturer-task-list');
+                const studentList = document.getElementById('student-task-list');
+                if(lecturerList) lecturerList.innerHTML = '';
+                if(studentList) studentList.innerHTML = '';
+
                 snap.forEach(d => {
                     const t = d.data();
-                    lList.innerHTML += `<tr class="border-b text-[10px]"><td class="p-3 font-bold">${t.name}<br><span class="text-slate-400 font-mono">${t.nim}</span></td><td class="p-3 font-bold text-teal-800">${t.title}</td><td class="p-3 text-right"><button onclick="window.open('${t.link}', '_blank')" class="bg-teal-600 text-white px-3 py-2 rounded-xl font-black uppercase shadow-md transition hover:scale-105 active:scale-95">Buka</button></td></tr>`;
+                    const viewLink = formatGDriveLink(t.link, false);
+                    
+                    // Dashboard Dosen (Semua Tugas)
+                    if(lecturerList) {
+                        lecturerList.innerHTML += `
+                            <tr class="border-b text-[10px]">
+                                <td class="p-3 font-bold">${t.name}<br><span class="text-slate-400 font-mono">${t.nim}</span></td>
+                                <td class="p-3 font-bold text-teal-800">${t.title}</td>
+                                <td class="p-3 text-right">
+                                    <button onclick="window.open('${viewLink}', '_blank')" class="bg-teal-600 text-white px-3 py-2 rounded-xl font-black uppercase shadow-md transition hover:scale-105 active:scale-95">Buka</button>
+                                </td>
+                            </tr>`;
+                    }
+
+                    // Dashboard Mahasiswa (Hanya Tugas Milik Sendiri)
+                    if(studentList && userDataGlobal && t.nim === userDataGlobal.nim) {
+                        studentList.innerHTML += `
+                            <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-2xl mb-3 hover:border-teal-500 transition-all">
+                                <div>
+                                    <p class="font-black text-sm text-teal-900 leading-tight">${t.title}</p>
+                                    <p class="text-[9px] text-slate-400 font-bold mt-1 uppercase italic">Dikirim: ${new Date(t.timestamp).toLocaleString('id-ID')}</p>
+                                </div>
+                                <div class="flex gap-1">
+                                    <button onclick="window.open('${viewLink}', '_blank')" class="p-2 bg-white text-teal-600 border rounded-xl hover:theme-bg hover:text-white transition shadow-sm"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                    <button onclick="window.editTask('${d.id}', '${t.title.replace(/'/g, "\\'")}', '${t.link}')" class="p-2 bg-white text-orange-600 border rounded-xl hover:bg-orange-500 hover:text-white transition shadow-sm"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
+                                </div>
+                            </div>`;
+                    }
                 });
+                lucide.createIcons();
             });
         };
 
@@ -604,7 +670,7 @@
         <div class="container mx-auto flex justify-between items-center px-4">
             <div class="flex items-center gap-3">
                 <div class="logo-container"><img src="" class="univ-logo w-full h-full object-contain"></div>
-                <div><h1 class="univ-name text-xl font-black tracking-tighter leading-none mb-1">Poltekes KMC</h1><p class="text-[10px] font-bold opacity-70 uppercase tracking-widest leading-none">REKAM MEDIK ELEKTRONIK 2026</p></div>
+                <div><h1 class="univ-name text-xl font-black tracking-tighter leading-none mb-1">Poltekes KMC</h1><p class="text-[10px] font-bold opacity-70 uppercase tracking-widest leading-none">REKAM MEDIK ELEKTRONIK</p></div>
             </div>
             <div id="system-status" class="text-[10px] font-black text-gray-400 bg-black/20 px-3 py-1 rounded-full uppercase tracking-tighter">● Menghubungkan...</div>
         </div>
@@ -633,7 +699,7 @@
         </section>
 
         <!-- DASHBOARD MAHASISWA -->
-        <section id="student-dashboard" class="hidden space-y-6 mt-6">
+        <section id="student-dashboard" class="hidden space-y-6 mt-6 fade-in">
             <div class="bg-white p-6 rounded-[2.5rem] border shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
                 <div class="flex items-center gap-6">
                     <div class="profile-pic-container" onclick="window.triggerPhotoUpload()">
@@ -682,22 +748,37 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- KIRIM TUGAS (UPDATED) -->
                     <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100">
-                        <h3 class="font-black text-sm mb-4 theme-text uppercase tracking-widest flex items-center gap-2"><i data-lucide="upload-cloud" class="w-4 h-4"></i> Kirim Tugas</h3>
-                        <form onsubmit="window.submitTask(event)" class="space-y-3">
-                            <input id="task-title" type="text" placeholder="Judul Tugas" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs font-bold outline-none">
-                            <input id="task-link" type="text" placeholder="Link Berkas (G-Drive / YouTube)" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs font-bold outline-none">
-                            <button type="submit" class="w-full theme-bg text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg transition active:scale-95">Kirim Tugas Sekarang</button>
+                        <h3 id="task-section-title" class="font-black text-sm mb-4 theme-text uppercase tracking-widest flex items-center gap-2"><i data-lucide="upload-cloud" class="w-4 h-4"></i> Kirim Tugas</h3>
+                        <form id="task-upload-form" onsubmit="window.submitTask(event)" class="space-y-3 mb-8">
+                            <input type="hidden" id="task-id">
+                            <input id="task-title" type="text" placeholder="Judul Tugas (Contoh: Laporan Anatomi)" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs font-bold outline-none focus:theme-border">
+                            <input id="task-link" type="text" placeholder="Link Berkas (G-Drive / YouTube)" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs font-bold outline-none focus:theme-border">
+                            <div class="flex gap-2">
+                                <button id="btn-cancel-task" type="button" onclick="window.cancelEditTask()" class="hidden flex-1 bg-stone-100 py-4 rounded-2xl font-black text-[10px] uppercase">Batal</button>
+                                <button id="btn-submit-task" type="submit" class="flex-[2] theme-bg text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg transition active:scale-95">Kirim Tugas Sekarang</button>
+                            </div>
                         </form>
+                        
+                        <!-- LIST TUGAS SAYA -->
+                        <div class="border-t pt-6">
+                            <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="list" class="w-3 h-3"></i> Tugas Yang Sudah Dikirim</h4>
+                            <div id="student-task-list" class="max-h-64 overflow-y-auto custom-scrollbar">
+                                <p class="text-center text-[10px] text-slate-400 italic py-4">Belum ada tugas yang dikirim.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
+
                 <div class="space-y-6">
                     <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
                         <h3 class="font-black text-sm mb-4 theme-text uppercase tracking-widest flex items-center gap-2"><i data-lucide="book-open" class="w-4 h-4"></i> Materi Kuliah</h3>
                         <div id="student-material-list" class="max-h-80 overflow-y-auto custom-scrollbar"></div>
                     </div>
                     <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-                        <h3 class="font-black text-sm mb-4 theme-text uppercase tracking-widest">Kelas Online Aktif</h3>
+                        <h3 class="font-black text-sm mb-4 theme-text uppercase tracking-widest flex items-center gap-2"><i data-lucide="monitor" class="w-4 h-4"></i> Kelas Online Aktif</h3>
                         <div id="student-online-list"></div>
                     </div>
                 </div>
@@ -808,7 +889,6 @@
                         <button class="w-full theme-bg text-white py-5 rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-[0.2em] transition hover:scale-[1.02] active:scale-95">Daftarkan Akun</button>
                     </form>
                     
-                    <!-- DAFTAR PENGGUNA TERDAFTAR -->
                     <h3 class="font-black text-slate-400 mb-4 flex items-center gap-2 uppercase text-[10px] tracking-widest"><i data-lucide="list" class="w-3 h-3"></i> Daftar Pengguna Terdaftar</h3>
                     <div id="admin-all-users-list" class="max-h-64 overflow-y-auto custom-scrollbar border rounded-2xl bg-white divide-y"></div>
                 </div>
@@ -826,8 +906,7 @@
         </section>
     </main>
 
-    <!-- Modals -->
-    <!-- Modal Konfirmasi (Confirm Modal) - DITAMBAHKAN UNTUK FIX ERROR -->
+    <!-- Modal Konfirmasi -->
     <div id="confirm-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
         <div class="bg-white p-8 rounded-[3rem] w-full max-w-sm flex flex-col items-center shadow-2xl border-4 theme-border">
             <h3 class="font-black mb-6 theme-text uppercase tracking-widest text-sm text-center leading-tight">Konfirmasi Tindakan</h3>
@@ -839,6 +918,7 @@
         </div>
     </div>
 
+    <!-- Modal Profil -->
     <div id="profile-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
         <div class="bg-white p-8 rounded-[3rem] w-full max-w-lg shadow-2xl border-4 theme-border">
             <h3 class="font-black theme-text uppercase tracking-widest text-xs mb-6">Update Profil Pengguna</h3>
@@ -855,6 +935,7 @@
         </div>
     </div>
 
+    <!-- Modal Kamera -->
     <div id="camera-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
         <div class="bg-white p-8 rounded-[3rem] w-full max-w-sm flex flex-col items-center shadow-2xl border-4 theme-border">
             <h3 class="font-black mb-6 theme-text uppercase tracking-widest text-sm text-center leading-tight">Verifikasi Presensi</h3>
@@ -863,11 +944,13 @@
         </div>
     </div>
 
+    <!-- Foto Viewer -->
     <div id="photo-viewer" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
         <img id="viewer-img" src="" class="max-w-xs w-full rounded-[2.5rem] border-4 border-white mb-6 shadow-2xl">
         <button onclick="document.getElementById('photo-viewer').classList.replace('hidden', 'flex')" class="text-white bg-white/20 px-12 py-3 rounded-full font-black text-[10px] uppercase border border-white/20 tracking-widest transition active:scale-90">Tutup</button>
     </div>
 
+    <!-- Notifikasi -->
     <div id="notification-toast" class="notification-toast fixed top-20 right-4 z-[200] w-72 bg-white shadow-2xl rounded-2xl p-4 border flex items-center gap-3">
         <div class="w-10 h-10 flex items-center justify-center rounded-full bg-teal-50 text-teal-600"><i data-lucide="bell" class="w-5 h-5"></i></div>
         <div><p id="notification-title" class="text-xs font-black theme-text uppercase mb-1"></p><p id="notification-message" class="text-[10px] text-gray-500 font-bold leading-tight"></p></div>
