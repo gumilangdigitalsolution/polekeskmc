@@ -64,6 +64,22 @@
         const db = getFirestore(app);
         const appId = "poltekes-kmc-prod"; 
 
+        // Fungsi Helper untuk merubah link Google Drive menjadi Direct Link
+        const formatGDriveLink = (link) => {
+            if (!link) return "";
+            if (link.includes("drive.google.com")) {
+                const regex = /\/d\/([^/]+)/;
+                const match = link.match(regex);
+                if (match && match[1]) {
+                    return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+                }
+            }
+            return link;
+        };
+
+        // Link Logo Default Bapak
+        const DEFAULT_LOGO = "https://drive.google.com/uc?export=view&id=1fhzH6iASjaulRO-ZHSPgTEdhudGPZeIq";
+
         let currentUser = null;
         let cameraStream = null;
         window.currentSubmissions = {};
@@ -110,35 +126,32 @@
         const listenToSettings = () => {
             if (!currentUser) return;
             onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), (snapshot) => {
-                if (snapshot.exists()) {
-                    const data = snapshot.data();
-                    
-                    // Update Nama Universitas
-                    document.querySelectorAll('.univ-name').forEach(el => el.innerText = data.univName || 'Poltekes KMC');
-                    
-                    // Update Logo dengan Force Refresh logic
-                    if (data.logoUrl) {
-                        document.querySelectorAll('.univ-logo').forEach(img => {
-                            img.src = data.logoUrl;
-                            img.onerror = () => { img.src = 'https://drive.google.com/file/d/1fhzH6iASjaulRO-ZHSPgTEdhudGPZeIq/view?usp=drive_link'; };
-                        });
-                    }
+                const data = snapshot.exists() ? snapshot.data() : {};
+                
+                // 1. Update Nama Universitas
+                document.querySelectorAll('.univ-name').forEach(el => el.innerText = data.univName || 'Poltekes KMC');
+                
+                // 2. Update Logo dengan Format GDrive Fix
+                const logoUrl = data.logoUrl ? formatGDriveLink(data.logoUrl) : DEFAULT_LOGO;
+                document.querySelectorAll('.univ-logo').forEach(img => {
+                    img.src = logoUrl;
+                    img.onerror = () => { img.src = DEFAULT_LOGO; };
+                });
 
-                    // Sinkronisasi Input di Dashboard Admin (PENTING)
-                    const inputUniv = document.getElementById('set-univ-name');
-                    const inputLogo = document.getElementById('set-logo-url');
-                    const inputColor = document.getElementById('set-theme-color');
-                    
-                    if (inputUniv && !inputUniv.matches(':focus')) inputUniv.value = data.univName || '';
-                    if (inputLogo && !inputLogo.matches(':focus')) inputLogo.value = data.logoUrl || '';
-                    if (inputColor) inputColor.value = data.themeColor || '#0f766e';
-
-                    // Update Tema Warna
-                    if (data.themeColor) {
-                        document.documentElement.style.setProperty('--primary-color', data.themeColor);
-                        document.documentElement.style.setProperty('--primary-dark', data.themeColor + 'cc');
-                    }
+                // 3. Update Warna Tema
+                if (data.themeColor) {
+                    document.documentElement.style.setProperty('--primary-color', data.themeColor);
+                    document.documentElement.style.setProperty('--primary-dark', data.themeColor + 'cc');
                 }
+
+                // 4. Sinkronisasi Input Form Admin
+                const inputUniv = document.getElementById('set-univ-name');
+                const inputLogo = document.getElementById('set-logo-url');
+                const inputColor = document.getElementById('set-theme-color');
+                
+                if (inputUniv && !inputUniv.matches(':focus')) inputUniv.value = data.univName || '';
+                if (inputLogo && !inputLogo.matches(':focus')) inputLogo.value = data.logoUrl || ''; // Tetap simpan link asli user di input
+                if (inputColor) inputColor.value = data.themeColor || '#0f766e';
             });
         };
 
@@ -575,7 +588,8 @@
     <header class="gradient-bg text-white p-4 shadow-xl sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center px-4">
             <div class="flex items-center gap-3">
-                <img src="https://img.icons8.com/color/48/hospital.png" class="univ-logo w-8 h-8 bg-white p-1 rounded-lg">
+                <!-- Logo Menggunakan Link Google Drive Bapak secara Default -->
+                <img id="main-logo" src="https://drive.google.com/uc?export=view&id=1fhzH6iASjaulRO-ZHSPgTEdhudGPZeIq" class="univ-logo w-10 h-10 bg-white p-1 rounded-lg object-contain">
                 <div><h1 class="univ-name text-xl font-black tracking-tighter leading-none mb-1">Poltekes KMC</h1><p class="text-[10px] font-bold opacity-70 uppercase tracking-widest">Portal Akademik Terpadu</p></div>
             </div>
             <div id="system-status" class="text-[10px] font-black text-gray-400 bg-black/20 px-3 py-1 rounded-full uppercase tracking-tighter">● Menghubungkan...</div>
@@ -736,7 +750,7 @@
                     <h3 class="font-black theme-text mb-6 border-b pb-2 flex items-center gap-2 uppercase text-xs tracking-tighter"><i data-lucide="palette" class="w-4 h-4"></i> Branding Kampus</h3>
                     <form onsubmit="saveSettings(event)" class="space-y-4">
                         <input id="set-univ-name" type="text" class="w-full p-4 border rounded-2xl text-xs font-black bg-slate-50 uppercase" placeholder="Nama Politeknik">
-                        <input id="set-logo-url" type="text" class="w-full p-4 border rounded-2xl text-[10px] bg-slate-50 font-bold" placeholder="URL Logo">
+                        <input id="set-logo-url" type="text" class="w-full p-4 border rounded-2xl text-[10px] bg-slate-50 font-bold" placeholder="URL Logo Google Drive">
                         <div class="p-4 bg-slate-50 border rounded-2xl flex items-center justify-between"><span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Warna Tema</span><input id="set-theme-color" type="color" value="#0f766e" class="w-12 h-12 rounded-xl border-none cursor-pointer"></div>
                         <button class="w-full theme-bg text-white py-5 rounded-2xl font-black shadow-xl uppercase text-[10px] tracking-widest mt-4 transition active:scale-95">Update Branding</button>
                     </form>
