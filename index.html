@@ -4,19 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistem Akademik Poltekes KMC</title>
-    <!-- Tailwind CSS untuk Desain Modern -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
-            --primary-color: #f97316; 
-            --primary-dark: #ea580c;
+            --primary-color: #0f766e;
+            --primary-dark: #115e59;
+            --accent: #f97316;
         }
         .theme-bg { background-color: var(--primary-color); }
         .theme-text { color: var(--primary-color); }
         .theme-border { border-color: var(--primary-color); }
         .gradient-bg { background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%); }
+        
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -24,337 +26,381 @@
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Camera Modal Overlay */
-        #camera-modal {
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(4px);
+        #camera-modal, #photo-viewer, #pdf-viewer-modal, #grade-modal { background: rgba(0,0,0,0.95); backdrop-filter: blur(10px); z-index: 100; }
+        
+        .pulse { animation: pulse-animation 2s infinite; }
+        @keyframes pulse-animation { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        
+        .notification-toast {
+            transform: translateX(150%);
+            transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
         }
+        .notification-toast.show { transform: translateX(0); }
+
+        .gps-guide { display: none; }
+
+        .chat-bubble-mhs { background: #e0f2f1; color: #004d40; border-radius: 20px 20px 0 20px; }
+        .chat-bubble-dosen { background: #f1f5f9; color: #1e293b; border-radius: 20px 20px 20px 0; }
     </style>
 
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseConfig = {
+            apiKey: "AIzaSyCXjROUJ5-xtxtfiJbTsyW39fLjszYKoWo",
+            authDomain: "poltekeskmc-ee1a9.firebaseapp.com",
+            projectId: "poltekeskmc-ee1a9",
+            storageBucket: "poltekeskmc-ee1a9.firebasestorage.app",
+            messagingSenderId: "52445213003",
+            appId: "1:52445213003:web:863d79f1250525886938ce",
+            measurementId: "G-3G79XM3133"
+        };
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'kmc-prod-v1';
+        const appId = "poltekes-kmc-prod"; 
 
         let currentUser = null;
-        let unsubscribers = [];
         let cameraStream = null;
+        window.currentSubmissions = {};
 
-        const clearListeners = () => {
-            unsubscribers.forEach(unsub => unsub());
-            unsubscribers = [];
+        window.showNotification = (title, message, type = 'info') => {
+            const toast = document.getElementById('notification-toast');
+            const tTitle = document.getElementById('notification-title');
+            const tMsg = document.getElementById('notification-message');
+            const iconBox = document.getElementById('notification-icon');
+            if (!toast) return;
+            tTitle.innerText = title;
+            tMsg.innerText = message;
+            iconBox.innerHTML = type === 'success' ? '<i data-lucide="check-circle" class="text-green-500"></i>' : 
+                               type === 'error' ? '<i data-lucide="alert-triangle" class="text-red-500"></i>' : 
+                               '<i data-lucide="info" class="text-blue-500"></i>';
+            lucide.createIcons();
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 6000);
         };
 
         window.onload = async () => {
             lucide.createIcons();
-            
-            const initAuth = async () => {
-                try {
-                    const statusEl = document.getElementById('system-status');
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                    if(statusEl) {
-                        statusEl.innerText = "● Sistem Siap";
-                        statusEl.classList.replace('text-gray-400', 'text-green-500');
-                    }
-                } catch (e) { 
-                    console.error("Auth error:", e); 
-                    const statusEl = document.getElementById('system-status');
-                    if(statusEl) statusEl.innerText = "● Koneksi Bermasalah";
-                }
-            };
-
-            await initAuth();
+            const statusEl = document.getElementById('system-status');
+            try {
+                await signInAnonymously(auth);
+            } catch (e) {
+                console.error("Auth error:", e);
+                statusEl.innerText = "● Koneksi Gagal";
+            }
 
             onAuthStateChanged(auth, (user) => {
                 currentUser = user;
                 if (user) {
+                    statusEl.innerText = "● Sistem Siap";
+                    statusEl.className = "text-[10px] font-black text-green-400 border border-green-400 px-3 py-1 rounded-full uppercase pulse";
                     listenToSettings();
                     startMaterialListener();
+                    startOnlineClassListener();
+                    startChatListener();
                 }
             });
         };
 
         const listenToSettings = () => {
             if (!currentUser) return;
-            const settingsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config');
-            const unsub = onSnapshot(settingsDoc, (snapshot) => {
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), (snapshot) => {
                 if (snapshot.exists()) {
                     const data = snapshot.data();
+                    
+                    // Update Nama Universitas
                     document.querySelectorAll('.univ-name').forEach(el => el.innerText = data.univName || 'Poltekes KMC');
-                    if (data.logoUrl) document.querySelectorAll('.univ-logo').forEach(img => img.src = data.logoUrl);
+                    
+                    // Update Logo dengan Force Refresh logic
+                    if (data.logoUrl) {
+                        document.querySelectorAll('.univ-logo').forEach(img => {
+                            img.src = data.logoUrl;
+                            img.onerror = () => { img.src = 'https://img.icons8.com/color/48/hospital.png'; };
+                        });
+                    }
+
+                    // Sinkronisasi Input di Dashboard Admin (PENTING)
+                    const inputUniv = document.getElementById('set-univ-name');
+                    const inputLogo = document.getElementById('set-logo-url');
+                    const inputColor = document.getElementById('set-theme-color');
+                    
+                    if (inputUniv && !inputUniv.matches(':focus')) inputUniv.value = data.univName || '';
+                    if (inputLogo && !inputLogo.matches(':focus')) inputLogo.value = data.logoUrl || '';
+                    if (inputColor) inputColor.value = data.themeColor || '#0f766e';
+
+                    // Update Tema Warna
                     if (data.themeColor) {
                         document.documentElement.style.setProperty('--primary-color', data.themeColor);
                         document.documentElement.style.setProperty('--primary-dark', data.themeColor + 'cc');
                     }
                 }
             });
-            unsubscribers.push(unsub);
         };
 
         window.showSection = (id) => {
             ['login-section', 'student-dashboard', 'lecturer-dashboard', 'admin-dashboard'].forEach(s => {
-                const el = document.getElementById(s);
-                if (el) el.classList.add('hidden');
+                document.getElementById(s).classList.add('hidden');
             });
             const target = document.getElementById(id);
-            if (target) {
-                target.classList.remove('hidden');
-                target.classList.add('fade-in');
-            }
+            target.classList.remove('hidden');
+            target.classList.add('fade-in');
         };
 
         window.handleLogin = async (event) => {
             event.preventDefault();
-            if (!currentUser) return alert("Mohon tunggu, sistem sedang menghubungkan ke server...");
-
-            const name = document.getElementById('login-name').value;
-            const nim = document.getElementById('login-nim').value;
-            const pass = document.getElementById('login-pass').value;
+            const nim = document.getElementById('login-nim').value.trim();
+            const pass = document.getElementById('login-pass').value.trim();
             const role = document.querySelector('input[name="role"]:checked').value;
+            const nameInput = document.getElementById('login-name').value;
 
             try {
                 const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', nim);
                 const userSnap = await getDoc(userRef);
 
                 if (role === 'admin' && !userSnap.exists()) {
-                    if(!name) return alert("Pendaftaran Baru: Masukkan Nama Lengkap Admin.");
-                    await setDoc(userRef, { name, nim, pass, role: 'admin' });
-                    alert("Admin baru berhasil didaftarkan!");
+                    if(!nameInput) return showNotification("Daftar Admin", "Isi Nama Lengkap Anda.", "error");
+                    await setDoc(userRef, { name: nameInput, nim, pass, role: 'admin' });
+                    showNotification("Berhasil", "Admin terdaftar!", "success");
                     initAdminDashboard();
                     return;
                 }
 
-                if (!userSnap.exists()) {
-                    return alert("Gagal: ID tidak terdaftar. Hubungi Admin.");
-                }
-
+                if (!userSnap.exists()) return showNotification("Gagal", "ID tidak terdaftar.", "error");
                 const userData = userSnap.data();
-                if (userData.pass !== pass) return alert("Gagal: Password salah.");
-                if (userData.role !== role) return alert(`Gagal: Akun ini adalah ${userData.role}.`);
+                if (userData.pass !== pass) return showNotification("Gagal", "PIN salah.", "error");
+                if (userData.role !== role) return showNotification("Gagal", "Role salah.", "error");
 
                 if (role === 'admin') initAdminDashboard();
                 else if (role === 'dosen') initLecturerDashboard(userData);
                 else initStudentDashboard(userData);
-
-            } catch (error) { alert("Terjadi kesalahan: " + error.message); }
+            } catch (error) { showNotification("Kesalahan", error.message, "error"); }
         };
 
-        window.handleLogout = () => {
-            clearListeners();
-            window.showSection('login-section');
-            const loginForm = document.querySelector('form');
-            if (loginForm) loginForm.reset();
-            listenToSettings();
-            startMaterialListener();
-        };
+        window.handleLogout = () => location.reload();
 
-        // --- CAMERA & GEOLOCATION LOGIC ---
-        window.openAttendanceCamera = async () => {
-            const modal = document.getElementById('camera-modal');
-            const video = document.getElementById('attendance-video');
-            
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
+        // --- SISTEM CHAT ---
+        window.sendChat = async (role) => {
+            const nim = document.getElementById('login-nim').value;
+            const name = document.getElementById('user-display-name')?.innerText || "Dosen";
+            const inputId = role === 'mahasiswa' ? 'mhs-chat-input' : 'dosen-chat-input';
+            const msg = document.getElementById(inputId).value.trim();
+            const targetNim = role === 'dosen' ? document.getElementById('dosen-target-nim').value : nim;
+
+            if (!msg) return;
+            if (role === 'dosen' && !targetNim) return showNotification("Error", "Pilih mahasiswa untuk membalas.", "error");
 
             try {
-                cameraStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user", width: 640, height: 480 } 
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chats'), {
+                    nim: targetNim,
+                    senderName: name,
+                    senderRole: role,
+                    message: msg,
+                    timestamp: new Date().toISOString()
                 });
-                video.srcObject = cameraStream;
-            } catch (err) {
-                alert("Gagal mengakses kamera. Pastikan izin kamera diberikan.");
-                closeCamera();
-            }
+                document.getElementById(inputId).value = '';
+            } catch (err) { showNotification("Error", "Gagal mengirim chat.", "error"); }
         };
 
-        window.closeCamera = () => {
-            const modal = document.getElementById('camera-modal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
-                cameraStream = null;
-            }
-        };
+        const startChatListener = () => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'chats'), (snap) => {
+                const mhsBox = document.getElementById('mhs-chat-box');
+                const dosenList = document.getElementById('dosen-chat-list');
+                const myNim = document.getElementById('login-nim').value;
+                const myRole = document.querySelector('input[name="role"]:checked')?.value;
 
-        window.submitAttendanceWithMedia = async () => {
-            const btnSubmit = document.getElementById('btn-capture-attendance');
-            btnSubmit.disabled = true;
-            btnSubmit.innerText = "Memproses...";
+                let allChats = [];
+                snap.forEach(d => allChats.push({ id: d.id, ...d.data() }));
+                allChats.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-            const video = document.getElementById('attendance-video');
-            const canvas = document.createElement('canvas');
-            canvas.width = 320;
-            canvas.height = 240;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const photoBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const { latitude, longitude } = position.coords;
-                const nim = document.getElementById('login-nim').value;
-                const name = document.getElementById('user-display-name').innerText;
-
-                try {
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', nim), {
-                        name,
-                        nim,
-                        timestamp: new Date().toISOString(),
-                        photo: photoBase64,
-                        location: { lat: latitude, lng: longitude },
-                        mapsUrl: `https://www.google.com/maps?q=${latitude},${longitude}`
+                if (myRole === 'mahasiswa' && mhsBox) {
+                    mhsBox.innerHTML = '';
+                    allChats.filter(c => c.nim === myNim).forEach(c => {
+                        const isMe = c.senderRole === 'mahasiswa';
+                        const time = new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        mhsBox.innerHTML += `
+                            <div class="flex ${isMe ? 'justify-end' : 'justify-start'} mb-3">
+                                <div class="max-w-[80%] p-3 ${isMe ? 'chat-bubble-mhs' : 'chat-bubble-dosen'} shadow-sm">
+                                    <p class="text-[11px] font-bold opacity-70 mb-1">${c.senderName}</p>
+                                    <p class="text-xs leading-relaxed">${c.message}</p>
+                                    <p class="text-[9px] text-right mt-1 opacity-50 font-black">${time}</p>
+                                </div>
+                            </div>`;
                     });
-                    alert("Presensi Berhasil dengan Foto & Lokasi!");
-                    closeCamera();
-                } catch (e) {
-                    alert("Gagal mengirim data presensi.");
-                } finally {
-                    btnSubmit.disabled = false;
-                    btnSubmit.innerText = "Ambil Foto & Kirim";
+                    mhsBox.scrollTop = mhsBox.scrollHeight;
                 }
-            }, (err) => {
-                alert("Gagal mengambil lokasi GPS. Pastikan GPS aktif.");
-                btnSubmit.disabled = false;
-                btnSubmit.innerText = "Ambil Foto & Kirim";
+
+                if (myRole === 'dosen' && dosenList) {
+                    dosenList.innerHTML = '';
+                    const grouped = {};
+                    allChats.forEach(c => { if(!grouped[c.nim]) grouped[c.nim] = []; grouped[c.nim].push(c); });
+                    Object.keys(grouped).forEach(nim => {
+                        const chats = grouped[nim];
+                        const lastChat = chats[chats.length - 1];
+                        const time = new Date(lastChat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        dosenList.innerHTML += `
+                            <div onclick="selectChatMahasiswa('${nim}', '${lastChat.senderName}')" class="p-4 bg-slate-50 rounded-2xl mb-2 cursor-pointer hover:bg-teal-50 border border-transparent hover:theme-border transition">
+                                <div class="flex justify-between items-start">
+                                    <h4 class="text-xs font-black theme-text uppercase">${lastChat.senderName}</h4>
+                                    <span class="text-[9px] font-bold text-gray-400">${time}</span>
+                                </div>
+                                <p class="text-[10px] text-gray-500 truncate mt-1">${lastChat.message}</p>
+                            </div>`;
+                    });
+                }
             });
         };
 
-        // --- ADMIN PANEL ---
-        const initAdminDashboard = () => {
-            window.showSection('admin-dashboard');
-            const userCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-            const unsub = onSnapshot(userCol, (snapshot) => {
-                const list = document.getElementById('admin-user-list');
-                if (!list) return;
-                list.innerHTML = '';
-                snapshot.forEach(d => {
-                    const data = d.data();
-                    list.innerHTML += `
-                        <tr class="border-b text-sm">
-                            <td class="p-3 font-bold text-orange-900">${data.name}</td>
-                            <td class="p-3 text-gray-600">${data.nim}</td>
-                            <td class="p-3 capitalize"><span class="px-2 py-1 rounded-lg bg-orange-50 font-semibold text-xs text-orange-700">${data.role}</span></td>
-                            <td class="p-3 text-right">
-                                <button onclick="deleteUser('${d.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                            </td>
-                        </tr>
-                    `;
+        window.selectChatMahasiswa = (nim, name) => {
+            document.getElementById('dosen-target-nim').value = nim;
+            document.getElementById('dosen-chat-title').innerText = "Chat: " + name;
+            const view = document.getElementById('dosen-chat-view');
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'chats'), (snap) => {
+                let chats = [];
+                snap.forEach(d => { if(d.data().nim === nim) chats.push(d.data()); });
+                chats.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                view.innerHTML = '';
+                chats.forEach(c => {
+                    const isDosen = c.senderRole === 'dosen';
+                    const time = new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    view.innerHTML += `
+                        <div class="flex ${isDosen ? 'justify-end' : 'justify-start'} mb-3">
+                            <div class="max-w-[85%] p-3 ${isDosen ? 'bg-teal-600 text-white rounded-t-2xl rounded-bl-2xl' : 'bg-slate-100 text-slate-800 rounded-t-2xl rounded-br-2xl'}">
+                                <p class="text-xs leading-relaxed">${c.message}</p>
+                                <p class="text-[8px] text-right mt-1 opacity-70">${time}</p>
+                            </div>
+                        </div>`;
                 });
-                lucide.createIcons();
+                view.scrollTop = view.scrollHeight;
             });
-            unsubscribers.push(unsub);
         };
 
-        window.addUser = async (event) => {
-            event.preventDefault();
-            const name = document.getElementById('add-user-name').value;
-            const nim = document.getElementById('add-user-nim').value;
-            const pass = document.getElementById('add-user-pass').value;
-            const role = document.getElementById('add-user-role').value;
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', nim), { name, nim, pass, role });
-                event.target.reset();
-                alert(`Akun ${role} berhasil didaftarkan!`);
-            } catch (e) { alert("Gagal menambah user."); }
-        };
-
-        window.deleteUser = async (id) => { 
-            if (confirm("Hapus user ini?")) {
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id));
-                } catch (e) { alert("Gagal menghapus."); }
-            }
-        };
-
-        window.saveSettings = async (event) => {
-            event.preventDefault();
-            const univName = document.getElementById('set-univ-name').value;
-            const logoUrl = document.getElementById('set-logo-url').value;
-            const themeColor = document.getElementById('set-theme-color').value;
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), { univName, logoUrl, themeColor }, { merge: true });
-                alert("Branding diperbarui!");
-            } catch (e) { alert("Gagal menyimpan."); }
-        };
-
-        // --- LECTURER PANEL ---
+        // --- DASHBOARD DOSEN ---
         const initLecturerDashboard = (userData) => {
-            window.showSection('lecturer-dashboard');
+            showSection('lecturer-dashboard');
             document.getElementById('lecturer-name-display').innerText = userData.name;
             
-            const attUnsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), (snap) => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), (snap) => {
                 const list = document.getElementById('attendance-list');
-                if (!list) return;
                 list.innerHTML = '';
                 snap.forEach(d => {
                     const data = d.data();
-                    list.innerHTML += `
-                        <tr class="border-b hover:bg-gray-50">
-                            <td class="p-3">
-                                <div class="font-bold text-orange-900 text-xs">${data.name}</div>
-                                <div class="text-[9px] text-gray-400 font-mono">${new Date(data.timestamp).toLocaleString()}</div>
-                            </td>
-                            <td class="p-3 text-right">
-                                <div class="flex gap-2 justify-end">
-                                    <button onclick="viewAttendancePhoto('${data.photo}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg" title="Lihat Foto"><i data-lucide="camera" class="w-4 h-4"></i></button>
-                                    <a href="${data.mapsUrl}" target="_blank" class="p-2 bg-green-50 text-green-600 rounded-lg" title="Lihat Lokasi"><i data-lucide="map-pin" class="w-4 h-4"></i></a>
-                                </div>
-                            </td>
-                        </tr>`;
+                    list.innerHTML += `<tr class="border-b text-xs"><td class="p-2 font-bold">${data.name}</td><td class="p-2 text-right"><button onclick="viewPhoto('${data.photo}')" class="text-blue-500 font-bold mr-2">FOTO</button><a href="${data.mapsUrl}" target="_blank" class="text-green-500 font-bold">GPS</a></td></tr>`;
                 });
-                lucide.createIcons();
             });
-            unsubscribers.push(attUnsub);
 
-            const subUnsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'submissions'), (snap) => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'submissions'), (snap) => {
                 const list = document.getElementById('submission-list');
-                if (!list) return;
                 list.innerHTML = '';
+                window.currentSubmissions = {}; 
                 snap.forEach(d => {
                     const data = d.data();
+                    window.currentSubmissions[d.id] = data; 
                     list.innerHTML += `
-                        <div class="bg-white p-4 rounded-2xl mb-3 border shadow-sm border-l-4 border-orange-500">
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="font-bold text-xs text-orange-800">${data.name}</span>
-                                <span class="text-blue-600 font-bold text-xs">Nilai: ${data.score || '-'}</span>
-                            </div>
-                            <div class="mb-2 p-2 bg-orange-50 rounded-lg">
-                                <p class="text-[10px] font-black uppercase text-orange-400 mb-1 tracking-wider">Tugas:</p>
-                                <p class="text-xs font-bold text-orange-900 leading-tight">${data.taskDesc || '-'}</p>
-                            </div>
-                            <a href="${data.taskLink}" target="_blank" class="text-[10px] text-blue-500 underline block mb-3 truncate">Buka Tautan Tugas</a>
+                        <div class="p-3 bg-slate-50 border rounded-xl mb-2 shadow-sm">
+                            <p class="font-bold text-xs text-teal-900">${data.name}</p>
+                            <p class="text-[9px] text-gray-500 mb-2 font-semibold uppercase tracking-widest">${data.taskDesc}</p>
                             <div class="flex gap-2">
-                                <input id="score-${d.id}" type="number" class="w-16 p-2 text-xs border rounded-lg outline-none" placeholder="0">
-                                <button onclick="giveScore('${d.id}')" class="bg-orange-600 text-white px-3 py-2 rounded-lg text-[10px] font-bold">Simpan</button>
+                                ${data.fileData ? `<button onclick="viewPDF('${d.id}')" class="px-3 py-1 bg-teal-600 text-white text-[9px] font-bold rounded-lg uppercase">Buka PDF</button>` : ''}
+                                <button onclick="deleteSubmission('${d.id}')" class="px-3 py-1 bg-red-50 text-red-500 text-[9px] font-bold rounded-lg uppercase">Hapus</button>
                             </div>
                         </div>`;
                 });
             });
-            unsubscribers.push(subUnsub);
+
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
+                const list = document.getElementById('lecturer-grading-list');
+                list.innerHTML = '';
+                snap.forEach(d => {
+                    const data = d.data();
+                    if(data.role === 'mahasiswa') {
+                        list.innerHTML += `
+                        <div class="p-3 bg-white border rounded-xl flex justify-between items-center shadow-sm border-teal-50">
+                            <div><p class="font-black text-teal-900 text-xs leading-none">${data.name}</p><p class="text-[9px] font-bold text-slate-400 mt-1 uppercase">${data.nim}</p></div>
+                            <button onclick="openGradeModal('${data.nim}', '${data.name}')" class="bg-teal-50 text-teal-700 px-4 py-2 rounded-lg text-[9px] font-black border border-teal-100 uppercase hover:bg-teal-600 hover:text-white transition">Nilai</button>
+                        </div>`;
+                    }
+                });
+            });
         };
 
-        window.viewAttendancePhoto = (photoBase64) => {
-            const viewer = document.getElementById('photo-viewer');
-            const img = document.getElementById('viewer-img');
-            img.src = photoBase64;
-            viewer.classList.remove('hidden');
-            viewer.classList.add('flex');
+        window.openGradeModal = async (nim, name) => {
+            document.getElementById('grade-student-name').innerText = name;
+            document.getElementById('grade-student-nim').value = nim;
+            const gradeDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', nim));
+            if(gradeDoc.exists()) {
+                const d = gradeDoc.data();
+                document.getElementById('sc-presensi').value = d.presensi || 0;
+                document.getElementById('sc-tugas').value = d.tugas || 0;
+                document.getElementById('sc-uts').value = d.uts || 0;
+                document.getElementById('sc-uas').value = d.uas || 0;
+                document.getElementById('sc-kelompok').value = d.kelompok || 0;
+                document.getElementById('sc-presentasi').value = d.presentasi || 0;
+            } else {
+                ['presensi','tugas','uts','uas','kelompok','presentasi'].forEach(id => document.getElementById('sc-'+id).value = 0);
+            }
+            document.getElementById('grade-modal').classList.replace('hidden', 'flex');
         };
 
-        window.closePhotoViewer = () => {
-            document.getElementById('photo-viewer').classList.add('hidden');
-            document.getElementById('photo-viewer').classList.remove('flex');
+        window.saveGrades = async () => {
+            const nim = document.getElementById('grade-student-nim').value;
+            const grades = {
+                presensi: parseInt(document.getElementById('sc-presensi').value) || 0,
+                tugas: parseInt(document.getElementById('sc-tugas').value) || 0,
+                uts: parseInt(document.getElementById('sc-uts').value) || 0,
+                uas: parseInt(document.getElementById('sc-uas').value) || 0,
+                kelompok: parseInt(document.getElementById('sc-kelompok').value) || 0,
+                presentasi: parseInt(document.getElementById('sc-presentasi').value) || 0,
+                timestamp: new Date().toISOString()
+            };
+            grades.total = Math.round((grades.presensi * 0.1) + (grades.tugas * 0.2) + (grades.uts * 0.3) + (grades.uas * 0.4));
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', nim), grades);
+            showNotification("Nilai Disimpan", "Rapor mahasiswa diperbarui.", "success");
+            document.getElementById('grade-modal').classList.replace('hidden', 'flex');
+        };
+
+        window.saveOnlineClass = async (e) => {
+            e.preventDefault();
+            const subject = document.getElementById('online-subject').value;
+            const time = document.getElementById('online-time').value;
+            const link = document.getElementById('online-link').value;
+            if(!subject || !time || !link) return showNotification("Input Kurang", "Lengkapi jadwal perkuliahan.", "error");
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'online_classes'), { subject, time, link, timestamp: new Date().toISOString() });
+            e.target.reset(); showNotification("Berhasil", "Jadwal ditambahkan!", "success");
+        };
+
+        const startOnlineClassListener = () => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'online_classes'), (snap) => {
+                const sList = document.getElementById('student-online-list');
+                const lList = document.getElementById('lecturer-online-list');
+                if(sList) sList.innerHTML = '';
+                if(lList) lList.innerHTML = '';
+                snap.forEach(d => {
+                    const data = d.data();
+                    if(sList) sList.innerHTML += `<div class="p-4 bg-teal-50 border border-teal-100 rounded-2xl mb-3 flex justify-between items-center shadow-sm"><div><p class="font-black text-teal-900 text-sm leading-tight">${data.subject}</p><p class="text-[10px] text-teal-600 font-bold mt-1 flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> ${data.time}</p></div><button onclick="window.open('${data.link}', '_blank')" class="bg-teal-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-teal-700 shadow-lg flex items-center gap-2"><i data-lucide="video" class="w-3 h-3"></i> GABUNG</button></div>`;
+                    if(lList) lList.innerHTML += `<div class="flex justify-between items-center p-3 border-b text-[10px]"><div><p class="font-black text-slate-800">${data.subject}</p><p class="text-slate-400 font-bold">${data.time}</p></div><button onclick="deleteOnlineClass('${d.id}')" class="text-red-400 font-black hover:text-red-600 transition">HAPUS</button></div>`;
+                });
+                lucide.createIcons();
+            });
+        };
+
+        const startMaterialListener = () => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), (snap) => {
+                const sList = document.getElementById('student-material-list');
+                const lList = document.getElementById('lecturer-material-list');
+                if(sList) sList.innerHTML = '';
+                if(lList) lList.innerHTML = '';
+                snap.forEach(d => {
+                    const data = d.data();
+                    if(sList) sList.innerHTML += `<div class="p-4 bg-white border rounded-2xl mb-3 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3 transition hover:border-teal-500"><div><p class="font-bold text-sm text-teal-900 leading-tight">${data.title}</p><p class="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1 italic">${data.type || 'Dokumen'}</p></div><div class="flex gap-2 w-full md:w-auto"><button onclick="window.open('${data.url}', '_blank')" class="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-teal-50 text-teal-700 rounded-xl text-[10px] font-black hover:bg-teal-600 hover:text-white transition"><i data-lucide="eye" class="w-3 h-3"></i> LIHAT</button><a href="${data.url}" target="_blank" class="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-orange-50 text-orange-700 rounded-xl text-[10px] font-black hover:bg-orange-600 hover:text-white transition"><i data-lucide="download" class="w-3 h-3"></i> UNDUH</a></div></div>`;
+                    if(lList) lList.innerHTML += `<div class="flex justify-between items-center p-2 text-[10px] border-b"><span class="font-bold truncate max-w-[120px]">${data.title}</span><button onclick="deleteMaterial('${d.id}')" class="text-red-400 font-black hover:text-red-600 transition uppercase tracking-tighter">Hapus</button></div>`;
+                });
+                lucide.createIcons();
+            });
         };
 
         window.uploadMaterial = async (e) => {
@@ -363,247 +409,384 @@
             const url = document.getElementById('mat-url').value;
             const type = document.getElementById('mat-type').value;
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), { title, url, type, timestamp: new Date().toISOString() });
-            e.target.reset();
+            e.target.reset(); showNotification("Berhasil", "Materi diunggah.", "success");
         };
 
-        window.deleteMaterial = async (id) => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', id));
-
-        window.giveScore = async (id) => {
-            const val = document.getElementById('score-'+id).value;
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', id), { score: parseInt(val) });
-            alert("Nilai disimpan.");
-        };
-
-        // --- STUDENT PANEL ---
-        const initStudentDashboard = (userData) => {
-            window.showSection('student-dashboard');
-            document.getElementById('user-display-name').innerText = userData.name;
-            document.getElementById('user-display-nim').innerText = userData.nim;
-        };
-
-        const startMaterialListener = () => {
-            const matUnsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), (snap) => {
-                const sList = document.getElementById('student-material-list');
-                const lList = document.getElementById('lecturer-material-list');
-                if(sList) sList.innerHTML = '';
-                if(lList) lList.innerHTML = '';
-
+        // --- ADMIN ---
+        const initAdminDashboard = () => {
+            showSection('admin-dashboard');
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
+                const list = document.getElementById('admin-user-list');
+                list.innerHTML = '';
                 snap.forEach(d => {
                     const data = d.data();
-                    const isVideo = data.type === 'video';
-                    if(sList) sList.innerHTML += `
-                        <div class="p-4 bg-slate-50 rounded-2xl border mb-3 flex items-center gap-3 cursor-pointer hover:bg-orange-50 transition" onclick="window.open('${data.url}', '_blank')">
-                            <div class="p-2 bg-white rounded-lg"><i data-lucide="${isVideo ? 'video' : 'file-text'}" class="${isVideo ? 'text-blue-500' : 'text-orange-500'}"></i></div>
-                            <div><p class="font-bold text-sm text-slate-800">${data.title}</p><p class="text-[10px] text-gray-400">Klik untuk melihat</p></div>
-                        </div>`;
-                    if(lList) lList.innerHTML += `
-                        <div class="flex justify-between items-center p-2 border-b text-xs hover:bg-gray-50">
-                            <span class="truncate w-32">${data.title}</span>
-                            <button onclick="deleteMaterial('${d.id}')" class="text-red-400 p-1 rounded hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                        </div>`;
+                    list.innerHTML += `<tr class="border-b text-xs"><td class="p-3 font-bold">${data.name}</td><td class="p-3 font-mono">${data.nim}</td><td class="p-3 uppercase font-black text-teal-600">${data.role}</td><td class="p-3 text-right"><button onclick="deleteUser('${d.id}')" class="text-red-500 font-bold bg-red-50 px-2 py-1 rounded">Hapus</button></td></tr>`;
                 });
-                lucide.createIcons();
             });
-            unsubscribers.push(matUnsub);
+        };
+
+        window.addUser = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('add-user-name').value;
+            const nim = document.getElementById('add-user-nim').value;
+            const pass = document.getElementById('add-user-pass').value;
+            const role = document.getElementById('add-user-role').value;
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', nim), { name, nim, pass, role });
+            e.target.reset(); showNotification("Berhasil", "User tersimpan.", "success");
+        };
+
+        window.deleteUser = async (id) => { if(confirm("Hapus akun?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id)); };
+
+        window.saveSettings = async (e) => {
+            e.preventDefault();
+            const univName = document.getElementById('set-univ-name').value;
+            const logoUrl = document.getElementById('set-logo-url').value;
+            const themeColor = document.getElementById('set-theme-color').value;
+            
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), { 
+                univName, 
+                logoUrl, 
+                themeColor 
+            }, { merge: true });
+            
+            showNotification("Berhasil", "Branding disimpan.", "success");
+        };
+
+        // --- MAHASISWA DASHBOARD ---
+        const initStudentDashboard = (userData) => {
+            showSection('student-dashboard');
+            document.getElementById('user-display-name').innerText = userData.name;
+            document.getElementById('user-display-nim').innerText = userData.nim;
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'grades', userData.nim), (snap) => {
+                const list = document.getElementById('student-grade-container');
+                if(snap.exists()) {
+                    const d = snap.data();
+                    list.innerHTML = `
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <div class="bg-teal-50 p-4 rounded-2xl border border-teal-100 text-center"><p class="text-[9px] font-black text-teal-600 uppercase mb-1">Presensi</p><p class="text-2xl font-black text-teal-900">${d.presensi}</p></div>
+                            <div class="bg-teal-50 p-4 rounded-2xl border border-teal-100 text-center"><p class="text-[9px] font-black text-teal-600 uppercase mb-1">Tugas</p><p class="text-2xl font-black text-teal-900">${d.tugas}</p></div>
+                            <div class="bg-teal-50 p-4 rounded-2xl border border-teal-100 text-center"><p class="text-[9px] font-black text-teal-600 uppercase mb-1">Kelompok</p><p class="text-2xl font-black text-teal-900">${d.kelompok}</p></div>
+                            <div class="bg-orange-50 p-4 rounded-2xl border border-orange-100 text-center"><p class="text-[9px] font-black text-orange-600 uppercase mb-1">Presentasi</p><p class="text-2xl font-black text-orange-900">${d.presentasi}</p></div>
+                            <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100 text-center"><p class="text-[9px] font-black text-blue-600 uppercase mb-1">UTS</p><p class="text-2xl font-black text-blue-900">${d.uts}</p></div>
+                            <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100 text-center"><p class="text-[9px] font-black text-blue-600 uppercase mb-1">UAS</p><p class="text-2xl font-black text-blue-900">${d.uas}</p></div>
+                        </div>
+                        <div class="mt-4 p-5 gradient-bg rounded-3xl text-white text-center shadow-xl shadow-teal-100">
+                            <p class="text-[10px] font-bold uppercase tracking-widest opacity-80 leading-none">Indeks Prestasi / Nilai Akhir</p>
+                            <p class="text-4xl font-black mt-2">${d.total || 'N/A'}</p>
+                        </div>`;
+                } else {
+                    list.innerHTML = `<div class="p-10 text-center bg-slate-50 border-2 border-dashed rounded-[2.5rem]"><p class="text-xs font-bold text-slate-400">Belum ada nilai diterbitkan.</p></div>`;
+                }
+            });
         };
 
         window.submitTask = async () => {
+            const btn = document.getElementById('btn-submit-task');
             const nim = document.getElementById('login-nim').value;
             const name = document.getElementById('user-display-name').innerText;
             const taskDesc = document.getElementById('task-desc').value;
             const taskLink = document.getElementById('task-link').value;
-            if(!taskDesc || !taskLink) return alert("Lengkapi deskripsi dan tautan tugas.");
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', nim), { name, nim, taskDesc, taskLink, timestamp: new Date().toISOString() });
-            alert("Tugas terkirim!");
+            const fileInput = document.getElementById('task-file');
+            if(!taskDesc) return showNotification("Error", "Isi judul tugas.", "error");
+            btn.disabled = true; btn.innerText = "Mengirim...";
+            let fileData = null;
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                if (file.size > 1024 * 1024) { btn.disabled = false; btn.innerText = "Kirim Tugas"; return showNotification("File Terlalu Besar", "Maksimal 1MB.", "error"); }
+                fileData = await new Promise((resolve) => { const r = new FileReader(); r.onload = (e) => resolve(e.target.result); r.readAsDataURL(file); });
+            }
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', nim), { name, nim, taskDesc, taskLink, fileData, timestamp: new Date().toISOString() });
+                showNotification("Berhasil", "Tugas terkirim!", "success");
+                document.getElementById('task-desc').value = ""; document.getElementById('task-link').value = ""; fileInput.value = "";
+            } catch (e) { showNotification("Error", e.message, "error"); } finally { btn.disabled = false; btn.innerText = "Kirim Tugas Sekarang"; }
         };
 
+        window.openAttendanceCamera = async () => {
+            const modal = document.getElementById('camera-modal');
+            const video = document.getElementById('attendance-video');
+            document.getElementById('gps-guide-box').style.display = 'none';
+            modal.classList.replace('hidden', 'flex');
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                video.srcObject = cameraStream;
+                video.onloadedmetadata = () => video.play();
+            } catch (err) { showNotification("Error", "Gagal akses kamera.", "error"); closeCamera(); }
+        };
+
+        window.closeCamera = () => { document.getElementById('camera-modal').classList.replace('flex', 'hidden'); if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); };
+        
+        window.submitAttendance = async () => {
+            const btn = document.getElementById('btn-capture');
+            btn.disabled = true; btn.innerText = "GPS...";
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const video = document.getElementById('attendance-video');
+                const canvas = document.createElement('canvas');
+                canvas.width = 640; canvas.height = 480;
+                canvas.getContext('2d').drawImage(video, 0, 0, 640, 480);
+                const photo = canvas.toDataURL('image/jpeg', 0.6);
+                const nim = document.getElementById('login-nim').value;
+                const name = document.getElementById('user-display-name').innerText;
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', nim), {
+                    name, nim, photo, timestamp: new Date().toISOString(),
+                    mapsUrl: `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`
+                });
+                showNotification("Sukses", "Presensi tersimpan!", "success");
+                closeCamera();
+                btn.disabled = false; btn.innerText = "Kirim Kehadiran";
+            }, () => {
+                document.getElementById('gps-guide-box').style.display = 'block';
+                btn.disabled = false; btn.innerText = "Kirim Kehadiran";
+            });
+        };
+
+        window.viewPhoto = (p) => { document.getElementById('viewer-img').src = p; document.getElementById('photo-viewer').classList.replace('hidden', 'flex'); };
+        window.viewPDF = (subId) => {
+            const data = window.currentSubmissions[subId];
+            if (!data || !data.fileData) return;
+            const container = document.getElementById('pdf-viewer-container');
+            container.innerHTML = ''; 
+            try {
+                const base64Data = data.fileData.split(',')[1];
+                const binaryString = window.atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+                const embed = document.createElement('embed');
+                embed.src = blobUrl; embed.type = 'application/pdf'; embed.className = 'w-full h-full border-none rounded-b-[2rem]';
+                container.appendChild(embed);
+                document.getElementById('pdf-backup-link').href = blobUrl;
+                document.getElementById('pdf-viewer-modal').classList.replace('hidden', 'flex');
+            } catch (err) { showNotification("Error", "Gagal muat PDF.", "error"); }
+        };
+        window.closePDF = () => { document.getElementById('pdf-viewer-container').innerHTML = ''; document.getElementById('pdf-viewer-modal').classList.replace('hidden', 'flex'); };
+        window.deleteSubmission = async (id) => { if(confirm("Hapus tugas?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', id)); };
+        window.deleteOnlineClass = async (id) => { if(confirm("Hapus jadwal ini?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'online_classes', id)); };
+        window.deleteMaterial = async (id) => { if(confirm("Hapus materi ini?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'materials', id)); };
     </script>
 </head>
-<body class="bg-gray-50 min-h-screen font-sans text-slate-900 custom-scrollbar">
+<body class="bg-slate-50 min-h-screen text-slate-900 custom-scrollbar overflow-x-hidden">
 
-    <!-- Header -->
+    <div id="notification-toast" class="notification-toast fixed top-20 right-4 z-[200] w-72 bg-white shadow-2xl rounded-2xl p-4 border flex items-center gap-3">
+        <div id="notification-icon" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-50"></div>
+        <div><p id="notification-title" class="text-xs font-black theme-text uppercase mb-1"></p><p id="notification-message" class="text-[10px] text-gray-500 font-bold leading-tight"></p></div>
+    </div>
+
     <header class="gradient-bg text-white p-4 shadow-xl sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center px-4">
             <div class="flex items-center gap-3">
-                <div class="bg-white p-1 rounded-xl shadow-lg">
-                    <img src="https://img.icons8.com/color/96/hospital.png" class="univ-logo w-10 h-10 object-contain" alt="Logo">
-                </div>
-                <div>
-                    <h1 class="univ-name text-xl font-black leading-tight tracking-tighter">Poltekes KMC</h1>
-                    <p class="text-[10px] uppercase tracking-[0.2em] opacity-80 font-bold">LMS Integrated System</p>
-                </div>
+                <img src="https://img.icons8.com/color/48/hospital.png" class="univ-logo w-8 h-8 bg-white p-1 rounded-lg">
+                <div><h1 class="univ-name text-xl font-black tracking-tighter leading-none mb-1">Poltekes KMC</h1><p class="text-[10px] font-bold opacity-70 uppercase tracking-widest">Portal Akademik Terpadu</p></div>
             </div>
-            <div id="system-status" class="text-[10px] font-black text-gray-400 border border-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">
-                ● Menghubungkan...
-            </div>
+            <div id="system-status" class="text-[10px] font-black text-gray-400 bg-black/20 px-3 py-1 rounded-full uppercase tracking-tighter">● Menghubungkan...</div>
         </div>
     </header>
 
     <main class="container mx-auto p-4 max-w-6xl">
         
         <!-- LOGIN SECTION -->
-        <section id="login-section" class="mt-10 max-w-md mx-auto">
+        <section id="login-section" class="mt-10 max-w-sm mx-auto">
             <div class="bg-white p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
-                <div class="text-center mb-8">
-                    <h2 class="text-3xl font-black theme-text tracking-tighter mb-1">Masuk Portal</h2>
-                    <p class="text-slate-400 text-xs font-medium italic">Silakan login ke <span class="univ-name font-bold">Poltekes KMC</span></p>
+                <div class="text-center mb-8 relative z-10">
+                    <h2 class="text-3xl font-black theme-text tracking-tighter leading-none">Pintu Masuk</h2>
+                    <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">LMS Poltekes KMC</p>
                 </div>
                 <form onsubmit="handleLogin(event)" class="space-y-4">
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Nama (Admin Baru)</label>
-                        <input type="text" id="login-name" class="w-full p-4 border-2 border-slate-50 rounded-2xl bg-slate-50 font-semibold text-sm outline-none focus:theme-border">
+                    <input type="text" id="login-name" class="w-full p-4 border rounded-2xl bg-slate-50 text-sm outline-none focus:theme-border" placeholder="Nama (Admin Baru)">
+                    <input type="text" id="login-nim" required class="w-full p-4 border rounded-2xl bg-slate-50 text-sm font-bold shadow-inner" placeholder="ID Akun (NIM/NIP)">
+                    <input type="password" id="login-pass" required class="w-full p-4 border rounded-2xl bg-slate-50 text-sm font-bold shadow-inner" placeholder="PIN Keamanan">
+                    <div class="flex bg-slate-100 p-1 rounded-xl">
+                        <label class="flex-1 text-center py-2 rounded-lg cursor-pointer has-[:checked]:bg-white has-[:checked]:theme-text transition"><input type="radio" name="role" value="mahasiswa" checked class="hidden"> <span class="text-[10px] font-black uppercase">MHS</span></label>
+                        <label class="flex-1 text-center py-2 rounded-lg cursor-pointer has-[:checked]:bg-white has-[:checked]:theme-text transition"><input type="radio" name="role" value="dosen" class="hidden"> <span class="text-[10px] font-black uppercase">Dosen</span></label>
+                        <label class="flex-1 text-center py-2 rounded-lg cursor-pointer has-[:checked]:bg-white has-[:checked]:theme-text transition"><input type="radio" name="role" value="admin" class="hidden"> <span class="text-[10px] font-black uppercase">Admin</span></label>
                     </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-black text-slate-400 uppercase ml-2">ID / NIM / NIP</label>
-                        <input type="text" id="login-nim" required class="w-full p-4 border-2 border-slate-50 rounded-2xl bg-slate-50 font-semibold text-sm outline-none focus:theme-border">
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-black text-slate-400 uppercase ml-2">PIN / Password</label>
-                        <input type="password" id="login-pass" required class="w-full p-4 border-2 border-slate-50 rounded-2xl bg-slate-50 font-semibold text-sm outline-none focus:theme-border">
-                    </div>
-                    <div class="flex bg-slate-100 p-1 rounded-2xl gap-1">
-                        <label class="flex-1 text-center py-3 rounded-xl cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:theme-text has-[:checked]:shadow-sm">
-                            <input type="radio" name="role" value="mahasiswa" checked class="hidden"> <span class="text-[10px] font-black uppercase">MHS</span>
-                        </label>
-                        <label class="flex-1 text-center py-3 rounded-xl cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:theme-text has-[:checked]:shadow-sm">
-                            <input type="radio" name="role" value="dosen" class="hidden"> <span class="text-[10px] font-black uppercase">Dosen</span>
-                        </label>
-                        <label class="flex-1 text-center py-3 rounded-xl cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:theme-text has-[:checked]:shadow-sm">
-                            <input type="radio" name="role" value="admin" class="hidden"> <span class="text-[10px] font-black uppercase">Admin</span>
-                        </label>
-                    </div>
-                    <button type="submit" class="w-full theme-bg text-white p-5 rounded-2xl font-black hover:opacity-90 transition-all shadow-xl shadow-orange-100 mt-4 active:scale-95">AKSES SISTEM</button>
+                    <button type="submit" class="w-full theme-bg text-white p-5 rounded-2xl font-black shadow-lg uppercase tracking-widest text-xs transition active:scale-95">Akses Sistem</button>
                 </form>
             </div>
         </section>
 
-        <!-- STUDENT DASHBOARD -->
+        <!-- DASHBOARD MAHASISWA -->
         <section id="student-dashboard" class="hidden space-y-6 mt-6">
-            <div class="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
                 <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 theme-bg rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-100"><i data-lucide="user" class="w-8 h-8"></i></div>
-                    <div><h2 id="user-display-name" class="text-2xl font-black theme-text leading-none"></h2><p id="user-display-nim" class="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest"></p></div>
+                    <div class="w-16 h-16 theme-bg rounded-2xl flex items-center justify-center text-white shadow-xl shadow-teal-100"><i data-lucide="user" class="w-8 h-8"></i></div>
+                    <div><h2 id="user-display-name" class="text-2xl font-black theme-text leading-none"></h2><p id="user-display-nim" class="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest"></p></div>
                 </div>
                 <div class="flex gap-2 w-full md:w-auto">
-                    <!-- NEW: Camera Attendance Trigger -->
-                    <button onclick="openAttendanceCamera()" class="flex-1 bg-orange-500 text-white px-8 py-5 rounded-2xl font-black text-sm shadow-lg shadow-orange-100 hover:scale-105 active:scale-95 transition-all">PRESENSI + FOTO</button>
-                    <button onclick="handleLogout()" class="p-5 bg-slate-100 text-slate-400 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all"><i data-lucide="log-out"></i></button>
+                    <button onclick="openAttendanceCamera()" class="flex-1 theme-bg text-white px-8 py-5 rounded-2xl font-black text-xs shadow-lg hover:scale-105 transition">ABSENSI FOTO & GPS</button>
+                    <button onclick="handleLogout()" class="p-5 bg-slate-100 rounded-2xl text-slate-300 hover:text-red-500 transition shadow-sm"><i data-lucide="log-out"></i></button>
                 </div>
             </div>
-            <div class="grid md:grid-cols-2 gap-8">
-                <div class="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
-                    <h3 class="font-black text-xl mb-6 flex items-center gap-2 theme-text"><i data-lucide="folder-heart"></i> Materi & Video</h3>
-                    <div id="student-material-list"></div>
+
+            <!-- CHAT DOSEN -->
+            <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100 grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-2">
+                    <h3 class="font-black text-lg mb-6 theme-text flex items-center gap-2 uppercase tracking-tighter leading-none"><i data-lucide="message-square" class="w-5 h-5"></i> Konsultasi Chat Dosen</h3>
+                    <div id="mhs-chat-box" class="h-80 overflow-y-auto custom-scrollbar p-4 bg-slate-50 rounded-3xl mb-4 border border-slate-100 flex flex-col"></div>
+                    <div class="flex gap-2">
+                        <input id="mhs-chat-input" type="text" placeholder="Tulis pertanyaan Anda..." class="flex-1 p-4 bg-white border rounded-2xl text-xs outline-none focus:theme-border shadow-sm font-bold">
+                        <button onclick="sendChat('mahasiswa')" class="theme-bg text-white px-6 rounded-2xl font-black text-xs uppercase shadow-lg transition active:scale-95"><i data-lucide="send" class="w-4 h-4"></i></button>
+                    </div>
                 </div>
-                <div class="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
-                    <h3 class="font-black text-xl mb-6 flex items-center gap-2 theme-text"><i data-lucide="upload"></i> Kirim Tugas</h3>
-                    <div class="space-y-3">
-                        <input type="text" id="task-desc" class="w-full p-4 border rounded-2xl bg-slate-50 text-sm font-medium outline-none focus:theme-border" placeholder="Nama Tugas">
-                        <input type="text" id="task-link" class="w-full p-4 border rounded-2xl bg-slate-50 text-sm font-medium outline-none focus:theme-border" placeholder="Link (Drive/Youtube)">
-                        <button onclick="submitTask()" class="w-full theme-bg text-white py-4 rounded-2xl font-black shadow-lg">Submit Tugas</button>
+                <div class="bg-teal-50 p-6 rounded-[2rem] border border-teal-100">
+                    <h4 class="text-xs font-black theme-text uppercase tracking-widest mb-4">Info Akademik</h4>
+                    <p class="text-[10px] text-teal-800 leading-relaxed font-bold">Gunakan fitur chat ini untuk berkonsultasi mengenai materi kuliah atau tugas langsung dengan Dosen pengampu.</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100">
+                <h3 class="font-black text-lg mb-6 theme-text flex items-center gap-2 uppercase tracking-tighter leading-none"><i data-lucide="award" class="w-5 h-5"></i> Rapor Akademik</h3>
+                <div id="student-grade-container"></div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+                    <h3 class="font-black text-lg mb-6 theme-text border-b-2 theme-border w-fit uppercase tracking-tighter flex items-center gap-2 leading-none"><i data-lucide="book-open" class="w-5 h-5"></i> Materi Kuliah</h3>
+                    <div id="student-material-list" class="max-h-80 overflow-y-auto custom-scrollbar"></div>
+                </div>
+                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100">
+                    <h3 class="font-black text-lg mb-6 theme-text border-b-2 theme-border w-fit uppercase tracking-tighter flex items-center gap-2 leading-none"><i data-lucide="video" class="w-5 h-5"></i> Kelas Online Aktif</h3>
+                    <div id="student-online-list" class="space-y-3"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DASHBOARD DOSEN -->
+        <section id="lecturer-dashboard" class="hidden space-y-6 mt-6">
+            <div class="bg-white p-6 rounded-[2rem] flex justify-between items-center border shadow-sm">
+                <h2 class="text-xl font-black theme-text leading-none">Dosen: <span id="lecturer-name-display"></span></h2>
+                <button onclick="handleLogout()" class="text-red-500 font-bold text-[10px] bg-red-50 px-8 py-3 rounded-2xl border border-red-100 uppercase tracking-widest transition hover:bg-red-100">LOGOUT</button>
+            </div>
+
+            <!-- CHAT MASUK DARI MAHASISWA -->
+            <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100 grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 border-r border-slate-100 pr-6">
+                    <h3 class="text-[11px] font-black mb-4 uppercase text-teal-600 tracking-widest flex items-center gap-2"><i data-lucide="message-circle" class="w-4 h-4"></i> Pesan Masuk</h3>
+                    <div id="dosen-chat-list" class="h-96 overflow-y-auto custom-scrollbar pr-2"></div>
+                </div>
+                <div class="md:col-span-2 flex flex-col">
+                    <div class="mb-4 pb-4 border-b">
+                        <h3 id="dosen-chat-title" class="text-xs font-black text-slate-800 uppercase tracking-widest">Pilih pesan mahasiswa</h3>
+                        <input type="hidden" id="dosen-target-nim">
+                    </div>
+                    <div id="dosen-chat-view" class="flex-1 h-64 overflow-y-auto custom-scrollbar p-4 bg-slate-50 rounded-2xl mb-4 border border-slate-100 flex flex-col"></div>
+                    <div class="flex gap-2">
+                        <input id="dosen-chat-input" type="text" placeholder="Balas pesan..." class="flex-1 p-4 bg-white border rounded-2xl text-xs outline-none focus:theme-border shadow-sm font-bold">
+                        <button onclick="sendChat('dosen')" class="theme-bg text-white px-8 rounded-2xl font-black text-xs uppercase shadow-lg transition active:scale-95">Kirim Balasan</button>
                     </div>
                 </div>
             </div>
-        </section>
 
-        <!-- LECTURER DASHBOARD -->
-        <section id="lecturer-dashboard" class="hidden space-y-6 mt-6">
-            <div class="flex justify-between items-center bg-white p-6 rounded-[2rem] border border-orange-50 shadow-sm">
-                <h2 class="text-xl font-black theme-text">Dosen: <span id="lecturer-name-display"></span></h2>
-                <button onclick="handleLogout()" class="text-red-500 font-bold px-6 py-3 bg-red-50 rounded-2xl hover:bg-red-100 transition shadow-sm border border-red-100">Logout</button>
-            </div>
-            <div class="grid lg:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-                    <h3 class="font-black mb-4 flex items-center gap-2 text-blue-600 uppercase text-xs">Materi Kuliah</h3>
-                    <form onsubmit="uploadMaterial(event)" class="space-y-3">
-                        <input id="mat-title" type="text" placeholder="Judul Materi" class="w-full p-3 bg-slate-50 border rounded-xl text-xs outline-none">
-                        <input id="mat-url" type="text" placeholder="URL (PDF/Video)" class="w-full p-3 bg-slate-50 border rounded-xl text-xs outline-none">
-                        <select id="mat-type" class="w-full p-3 bg-slate-50 border rounded-xl text-xs">
-                            <option value="pdf">📄 PDF</option>
-                            <option value="video">🎥 Video</option>
-                        </select>
-                        <button class="w-full theme-bg text-white py-3 rounded-xl font-bold text-xs">Publish</button>
+            <div class="grid lg:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-[2rem] border shadow-sm border-teal-100">
+                    <h3 class="text-[11px] font-black mb-4 uppercase text-teal-600 tracking-widest flex items-center gap-2"><i data-lucide="video" class="w-4 h-4"></i> Jadwal Kuliah Online</h3>
+                    <form onsubmit="saveOnlineClass(event)" class="space-y-3">
+                        <input id="online-subject" type="text" placeholder="Mata Kuliah" class="w-full p-3 border rounded-xl text-xs bg-slate-50 outline-none font-bold">
+                        <div class="grid grid-cols-2 gap-2"><input id="online-time" type="text" placeholder="Waktu" class="p-3 border rounded-xl text-xs bg-slate-50 outline-none font-bold"><input id="online-link" type="text" placeholder="Link Zoom/Meet" class="p-3 border rounded-xl text-xs bg-slate-50 outline-none font-bold"></div>
+                        <button class="w-full theme-bg text-white py-3 rounded-xl font-black text-[10px] shadow-lg uppercase tracking-widest transition">Publish Jadwal</button>
                     </form>
-                    <div id="lecturer-material-list" class="mt-4 border-t pt-4"></div>
+                    <div id="lecturer-online-list" class="mt-4 border-t pt-2 max-h-40 overflow-y-auto custom-scrollbar"></div>
                 </div>
-                <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-                    <h3 class="font-black mb-4 flex items-center gap-2 text-orange-500 uppercase text-xs">Presensi Mahasiswa</h3>
-                    <div class="overflow-y-auto max-h-80"><table class="w-full text-left"><tbody id="attendance-list" class="divide-y"></tbody></table></div>
+                <div class="bg-white p-6 rounded-[2rem] border shadow-sm">
+                    <h3 class="text-[11px] font-black mb-4 uppercase text-slate-400 tracking-widest flex items-center gap-2"><i data-lucide="file-plus" class="w-4 h-4"></i> Upload Materi Kuliah</h3>
+                    <form onsubmit="uploadMaterial(event)" class="space-y-3">
+                        <input id="mat-title" type="text" placeholder="Judul Materi" class="w-full p-3 border rounded-xl text-xs bg-slate-50 outline-none font-bold">
+                        <div class="grid grid-cols-2 gap-2"><input id="mat-url" type="text" placeholder="Link File" class="p-3 border rounded-xl text-xs bg-slate-50 outline-none font-bold"><select id="mat-type" class="p-3 border rounded-xl text-xs font-bold text-teal-800"><option value="pdf">📄 PDF</option><option value="video">🎥 VIDEO</option></select></div>
+                        <button class="w-full theme-bg text-white py-3 rounded-xl font-black text-[10px] shadow-lg uppercase tracking-widest transition">Upload Materi</button>
+                    </form>
+                    <div id="lecturer-material-list" class="mt-4 border-t pt-2 max-h-40 overflow-y-auto custom-scrollbar"></div>
                 </div>
-                <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-                    <h3 class="font-black mb-4 flex items-center gap-2 text-indigo-500 uppercase text-xs">Penilaian Tugas</h3>
-                    <div id="submission-list" class="overflow-y-auto max-h-80"></div>
+            </div>
+
+            <div class="bg-white p-6 rounded-[2.5rem] border shadow-sm border-teal-100">
+                <h3 class="text-[11px] font-black mb-4 uppercase text-teal-700 tracking-widest flex items-center gap-2"><i data-lucide="award" class="w-4 h-4"></i> Penilaian Mahasiswa</h3>
+                <div id="lecturer-grading-list" class="grid md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-[2rem] border shadow-sm">
+                    <h3 class="text-[11px] font-black mb-4 uppercase text-orange-400 tracking-widest flex items-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Presensi Mahasiswa</h3>
+                    <div class="max-h-60 overflow-y-auto custom-scrollbar"><table class="w-full text-left"><tbody id="attendance-list" class="divide-y"></tbody></table></div>
+                </div>
+                <div class="bg-white p-6 rounded-[2rem] border shadow-sm">
+                    <h3 class="text-[11px] font-black mb-4 uppercase text-blue-500 tracking-widest flex items-center gap-2"><i data-lucide="inbox" class="w-4 h-4"></i> Tugas Masuk</h3>
+                    <div id="submission-list" class="max-h-60 overflow-y-auto custom-scrollbar"></div>
                 </div>
             </div>
         </section>
 
-        <!-- ADMIN DASHBOARD -->
-        <section id="admin-dashboard" class="hidden space-y-6 mt-6">
-            <div class="flex justify-between items-center bg-white p-6 rounded-[2rem] shadow-md border border-orange-50">
-                <h2 class="text-2xl font-black text-slate-800">Admin Console</h2>
-                <button onclick="handleLogout()" class="bg-red-50 text-red-600 px-8 py-4 rounded-2xl font-black text-xs uppercase hover:bg-red-100 transition shadow-sm">Logout</button>
+        <!-- ADMIN -->
+        <section id="admin-dashboard" class="hidden space-y-8 mt-6">
+            <div class="bg-white p-8 rounded-[2.5rem] shadow-sm flex justify-between items-center border">
+                <div><h2 class="text-2xl font-black text-slate-800 leading-none">Console Admin</h2><p class="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-1">Sistem LMS</p></div>
+                <button onclick="handleLogout()" class="bg-red-50 text-red-600 px-8 py-3 rounded-2xl font-black text-[10px] border border-red-100 uppercase tracking-widest">Logout</button>
             </div>
             <div class="grid lg:grid-cols-2 gap-8">
-                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-                    <h3 class="font-black text-xl mb-6 flex items-center gap-2 text-blue-600"><i data-lucide="user-plus"></i> Akun Baru</h3>
-                    <form onsubmit="addUser(event)" class="space-y-4">
-                        <input id="add-user-name" type="text" placeholder="Nama Lengkap" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs">
-                        <input id="add-user-nim" type="text" placeholder="ID (NIM/NIP)" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs">
-                        <input id="add-user-pass" type="text" placeholder="Password (PIN)" required class="w-full p-4 border rounded-2xl bg-slate-50 text-xs">
-                        <select id="add-user-role" class="w-full p-4 border rounded-2xl text-xs bg-slate-50 font-bold">
-                            <option value="mahasiswa">🎓 Mahasiswa</option>
-                            <option value="dosen">👨‍🏫 Dosen</option>
-                            <option value="admin">🛠 Admin</option>
-                        </select>
-                        <button class="w-full theme-bg text-white py-4 rounded-2xl font-black text-sm shadow-xl">Daftarkan</button>
+                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+                    <h3 class="font-black text-blue-600 mb-6 border-b pb-2 flex items-center gap-2 uppercase text-xs tracking-tighter"><i data-lucide="user-plus" class="w-4 h-4"></i> Pendaftaran Akun</h3>
+                    <form onsubmit="addUser(event)" class="space-y-4 mb-8">
+                        <input id="add-user-name" type="text" placeholder="Nama Lengkap" required class="w-full p-4 border rounded-2xl bg-slate-50 outline-none text-xs font-bold">
+                        <div class="grid grid-cols-2 gap-3"><input id="add-user-nim" type="text" placeholder="ID (NIM/NIP)" required class="p-4 border rounded-2xl bg-slate-50 text-xs font-bold"><input id="add-user-pass" type="text" placeholder="PIN" required class="p-4 border rounded-2xl bg-slate-50 text-xs font-bold"></div>
+                        <select id="add-user-role" class="w-full p-4 border rounded-2xl text-xs font-black bg-white outline-none uppercase"><option value="mahasiswa">Mahasiswa</option><option value="dosen">Dosen</option><option value="admin">Administrator</option></select>
+                        <button class="w-full theme-bg text-white py-4 rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest transition active:scale-95">Daftarkan Akun</button>
                     </form>
-                    <div class="mt-8 overflow-x-auto"><table class="w-full text-left text-xs"><tbody id="admin-user-list"></tbody></table></div>
+                    <div class="max-h-48 overflow-y-auto custom-scrollbar"><table class="w-full text-left"><tbody id="admin-user-list" class="divide-y"></tbody></table></div>
                 </div>
-                <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-                    <h3 class="font-black text-xl mb-6 theme-text"><i data-lucide="layout"></i> Branding</h3>
+                <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+                    <h3 class="font-black theme-text mb-6 border-b pb-2 flex items-center gap-2 uppercase text-xs tracking-tighter"><i data-lucide="palette" class="w-4 h-4"></i> Branding Kampus</h3>
                     <form onsubmit="saveSettings(event)" class="space-y-4">
-                        <input id="set-univ-name" type="text" class="w-full p-4 border rounded-2xl text-xs bg-slate-50" placeholder="Nama Kampus">
-                        <input id="set-logo-url" type="text" class="w-full p-4 border rounded-2xl text-[10px] bg-slate-50" placeholder="URL Logo">
-                        <div class="flex gap-4 items-center bg-slate-50 p-4 rounded-2xl border">
-                            <input id="set-theme-color" type="color" value="#f97316" class="w-12 h-12 rounded-xl border-none cursor-pointer">
-                            <span class="text-xs font-bold text-slate-500">Ubah Warna Branding</span>
-                        </div>
-                        <button class="w-full theme-bg text-white py-5 rounded-2xl font-black shadow-xl mt-4">Update</button>
+                        <input id="set-univ-name" type="text" class="w-full p-4 border rounded-2xl text-xs font-black bg-slate-50 uppercase" placeholder="Nama Politeknik">
+                        <input id="set-logo-url" type="text" class="w-full p-4 border rounded-2xl text-[10px] bg-slate-50 font-bold" placeholder="URL Logo">
+                        <div class="p-4 bg-slate-50 border rounded-2xl flex items-center justify-between"><span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Warna Tema</span><input id="set-theme-color" type="color" value="#0f766e" class="w-12 h-12 rounded-xl border-none cursor-pointer"></div>
+                        <button class="w-full theme-bg text-white py-5 rounded-2xl font-black shadow-xl uppercase text-[10px] tracking-widest mt-4 transition active:scale-95">Update Branding</button>
                     </form>
                 </div>
             </div>
         </section>
     </main>
 
-    <!-- MODAL CAMERA -->
-    <div id="camera-modal" class="hidden fixed inset-0 z-[100] flex-col items-center justify-center p-4">
-        <div class="bg-white p-6 rounded-[2.5rem] w-full max-w-lg flex flex-col items-center shadow-2xl">
-            <h3 class="font-black text-xl theme-text mb-4">Verifikasi Wajah & Lokasi</h3>
-            <div class="w-full aspect-video bg-black rounded-3xl overflow-hidden mb-4 border-4 theme-border relative">
-                <video id="attendance-video" autoplay playsinline class="w-full h-full object-cover"></video>
-                <div class="absolute bottom-4 left-4 right-4 bg-black/50 backdrop-blur-md p-2 rounded-xl text-[10px] text-white text-center">
-                    Pastikan wajah terlihat jelas dan GPS aktif
-                </div>
+    <!-- Modal Penilaian -->
+    <div id="grade-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-[3rem] w-full max-w-lg flex flex-col shadow-2xl relative border-2 theme-border">
+            <h3 class="font-black mb-1 theme-text uppercase tracking-widest text-sm text-center leading-none">Form Nilai</h3>
+            <p id="grade-student-name" class="text-center font-bold text-[10px] text-slate-400 mb-6 uppercase tracking-widest"></p>
+            <input type="hidden" id="grade-student-nim">
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">Presensi (10%)</label><input type="number" id="sc-presensi" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">Tugas (20%)</label><input type="number" id="sc-tugas" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">UTS (30%)</label><input type="number" id="sc-uts" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">UAS (40%)</label><input type="number" id="sc-uas" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">Kelompok</label><input type="number" id="sc-kelompok" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
+                <div class="space-y-1"><label class="text-[9px] font-black uppercase text-slate-400 ml-2">Presentasi</label><input type="number" id="sc-presentasi" class="w-full p-3 border rounded-xl text-sm font-bold bg-slate-50 outline-none"></div>
             </div>
-            <div class="flex gap-4 w-full">
-                <button onclick="closeCamera()" class="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold">Batal</button>
-                <button id="btn-capture-attendance" onclick="submitAttendanceWithMedia()" class="flex-[2] py-4 theme-bg text-white rounded-2xl font-black shadow-lg shadow-orange-100">Ambil Foto & Kirim</button>
-            </div>
+            <div class="flex gap-4"><button onclick="document.getElementById('grade-modal').classList.replace('flex', 'hidden')" class="flex-1 py-4 bg-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest">Batal</button><button onclick="saveGrades()" class="flex-1 py-4 theme-bg text-white rounded-2xl font-black shadow-lg text-[10px] uppercase tracking-widest">Simpan</button></div>
         </div>
     </div>
 
-    <!-- MODAL PHOTO VIEWER (FOR DOSEN) -->
-    <div id="photo-viewer" class="hidden fixed inset-0 z-[100] bg-black/90 flex-col items-center justify-center p-4">
-        <div class="relative max-w-md w-full">
-            <button onclick="closePhotoViewer()" class="absolute -top-12 right-0 text-white text-3xl">&times;</button>
-            <img id="viewer-img" src="" class="w-full rounded-[2.5rem] shadow-2xl border-4 border-white">
-            <p class="text-white text-center mt-4 font-bold text-sm">Verifikasi Kehadiran Mahasiswa</p>
+    <!-- Modals (Kamera, Photo, PDF) -->
+    <div id="camera-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-[3rem] w-full max-w-sm flex flex-col items-center shadow-2xl relative border-2 theme-border">
+            <h3 class="font-black mb-6 theme-text uppercase tracking-widest text-sm text-center leading-tight">Presensi Kehadiran</h3>
+            <div class="w-full aspect-square bg-black rounded-[2.5rem] overflow-hidden border-4 theme-border shadow-inner relative"><video id="attendance-video" autoplay playsinline class="w-full h-full object-cover"></video></div>
+            <div id="gps-guide-box" class="gps-guide mt-4 p-4 bg-red-50 border border-red-200 rounded-2xl text-[10px] text-red-600 font-bold leading-relaxed"><p class="mb-2">⚠️ GPS Diblokir!</p><ol class="list-decimal pl-4 space-y-1"><li>Klik gembok browser.</li><li>Izinkan Lokasi.</li><li>Refresh.</li></ol></div>
+            <div class="mt-6 flex gap-4 w-full"><button onclick="closeCamera()" class="flex-1 py-4 bg-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest">Batal</button><button id="btn-capture" onclick="submitAttendance()" class="flex-[2] py-4 theme-bg text-white rounded-2xl font-black shadow-lg text-[10px] uppercase tracking-widest transition active:scale-95">Kirim</button></div>
+        </div>
+    </div>
+
+    <div id="photo-viewer" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
+        <div class="relative max-w-xs w-full text-center"><img id="viewer-img" src="" class="w-full rounded-[2.5rem] border-4 border-white mb-6 shadow-2xl"><button onclick="document.getElementById('photo-viewer').classList.replace('hidden', 'flex')" class="text-white bg-white/20 px-12 py-3 rounded-full font-black text-[10px] transition border border-white/20 tracking-widest uppercase">Tutup</button></div>
+    </div>
+
+    <div id="pdf-viewer-modal" class="hidden fixed inset-0 flex-col items-center justify-center p-4">
+        <div class="bg-white w-full max-w-4xl h-[90vh] rounded-[2.5rem] overflow-hidden flex flex-col shadow-2xl border-4 theme-border">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50"><div class="flex items-center gap-2"><div class="w-2 h-2 bg-teal-500 rounded-full pulse"></div><h3 class="font-black text-teal-900 text-[10px] uppercase tracking-widest leading-none">Pratinjau PDF</h3></div><div class="flex gap-2"><a id="pdf-backup-link" target="_blank" class="px-4 py-2 bg-orange-50 text-orange-600 text-[9px] font-black rounded-xl border border-orange-200 uppercase">Tab Baru</a><button onclick="closePDF()" class="text-red-500 font-black text-[9px] px-4 py-2 hover:bg-red-50 rounded-xl uppercase">Tutup</button></div></div>
+            <div id="pdf-viewer-container" class="flex-1 w-full bg-slate-200 overflow-hidden flex items-center justify-center"></div>
         </div>
     </div>
 
     <footer class="mt-20 py-12 text-center border-t border-slate-100 bg-white">
         <div class="univ-name font-black theme-text tracking-tighter uppercase mb-1">Poltekes KMC</div>
-        <p class="text-[10px] text-slate-400 font-bold tracking-[0.4em] uppercase">© 2024 Digital Learning Ecosystem</p>
+        <p class="text-[10px] text-slate-400 font-bold tracking-[0.4em] uppercase">© 2026 Academic Management Cloud</p>
     </footer>
 
 </body>
