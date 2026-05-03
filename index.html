@@ -490,7 +490,6 @@
                     const t = d.data();
                     const viewLink = formatGDriveLink(t.link, false);
                     
-                    // Dashboard Dosen (Semua Tugas)
                     if(lecturerList) {
                         lecturerList.innerHTML += `
                             <tr class="border-b text-[10px]">
@@ -502,7 +501,6 @@
                             </tr>`;
                     }
 
-                    // Dashboard Mahasiswa (Hanya Tugas Milik Sendiri)
                     if(studentList && userDataGlobal && t.nim === userDataGlobal.nim) {
                         studentList.innerHTML += `
                             <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-2xl mb-3 hover:border-teal-500 transition-all">
@@ -531,21 +529,24 @@
                 snap.forEach(d => {
                     const data = d.data();
                     if(sList) sList.innerHTML += `<div class="p-4 bg-teal-50 border border-teal-100 rounded-2xl mb-3 flex justify-between items-center shadow-sm"><div><p class="font-black text-teal-900 text-sm leading-tight">${data.subject}</p><p class="text-[10px] text-teal-600 font-bold mt-1 uppercase">${data.time}</p></div><button onclick="window.open('${data.link}', '_blank')" class="bg-teal-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">GABUNG</button></div>`;
-                    if(lList) lList.innerHTML += `<div class="p-3 border-b flex justify-between items-center bg-white rounded-xl mb-2 shadow-sm"><div class="truncate max-w-[150px]"><p class="text-xs font-bold leading-tight">${data.subject}</p></div><div class="flex gap-1"><button onclick="window.deleteOnlineClass('${d.id}')" class="text-red-500 font-bold text-[9px] uppercase bg-red-50 px-2 py-1 rounded">Hapus</button></div></div>`;
+                    if(lList) lList.innerHTML += `<div class="p-3 border-b flex justify-between items-center bg-white rounded-xl mb-2 shadow-sm"><div class="truncate max-w-[150px]"><p class="text-xs font-bold leading-tight">${data.subject}</p><p class="text-[8px] text-slate-400 font-bold uppercase">${data.time}</p></div><div class="flex gap-1"><button onclick="window.deleteOnlineClass('${d.id}')" class="text-red-500 font-bold text-[9px] uppercase bg-red-50 px-2 py-1 rounded hover:bg-red-100">Hapus</button></div></div>`;
                 });
+                lucide.createIcons();
             });
         };
 
         window.saveOnlineClass = async (e) => {
             e.preventDefault();
-            const subject = document.getElementById('online-subject').value;
-            const time = document.getElementById('online-time').value;
-            const link = document.getElementById('online-link').value;
+            const subject = document.getElementById('online-subject').value.trim();
+            const time = document.getElementById('online-time').value.trim();
+            const link = document.getElementById('online-link').value.trim();
+            if(!subject || !time || !link) return alert("Lengkapi data jadwal online.");
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'online_classes'), { subject, time, link, timestamp: new Date().toISOString() });
+            showNotification("Berhasil", "Jadwal kuliah online telah ditambahkan!");
             e.target.reset();
         };
 
-        window.deleteOnlineClass = (id) => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'online_classes', id));
+        window.deleteOnlineClass = (id) => window.requestConfirm("Hapus jadwal kuliah ini?", async () => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'online_classes', id)));
 
         const startAttendanceListener = () => {
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), (snap) => {
@@ -749,7 +750,6 @@
                         </div>
                     </div>
 
-                    <!-- KIRIM TUGAS (UPDATED) -->
                     <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100">
                         <h3 id="task-section-title" class="font-black text-sm mb-4 theme-text uppercase tracking-widest flex items-center gap-2"><i data-lucide="upload-cloud" class="w-4 h-4"></i> Kirim Tugas</h3>
                         <form id="task-upload-form" onsubmit="window.submitTask(event)" class="space-y-3 mb-8">
@@ -761,8 +761,6 @@
                                 <button id="btn-submit-task" type="submit" class="flex-[2] theme-bg text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg transition active:scale-95">Kirim Tugas Sekarang</button>
                             </div>
                         </form>
-                        
-                        <!-- LIST TUGAS SAYA -->
                         <div class="border-t pt-6">
                             <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="list" class="w-3 h-3"></i> Tugas Yang Sudah Dikirim</h4>
                             <div id="student-task-list" class="max-h-64 overflow-y-auto custom-scrollbar">
@@ -785,8 +783,8 @@
             </div>
         </section>
 
-        <!-- DASHBOARD DOSEN -->
-        <section id="lecturer-dashboard" class="hidden space-y-6 mt-6">
+        <!-- DASHBOARD DOSEN (UPDATED WITH ONLINE CLASS MGMT) -->
+        <section id="lecturer-dashboard" class="hidden space-y-6 mt-6 fade-in">
             <div class="bg-white p-6 rounded-[2.5rem] border shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
                 <div class="flex items-center gap-6">
                     <div class="profile-pic-container" onclick="window.triggerPhotoUpload()">
@@ -801,6 +799,25 @@
                 <div class="flex gap-2">
                     <button onclick="window.openEditProfile()" class="bg-teal-50 text-teal-700 px-6 py-3 rounded-2xl font-black text-[10px] uppercase shadow-sm transition active:scale-95">Edit Profil</button>
                     <button onclick="window.handleLogout()" class="bg-red-50 text-red-600 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition">Keluar</button>
+                </div>
+            </div>
+
+            <!-- MENU JADWAL KULIAH ONLINE (NEW) -->
+            <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-blue-100">
+                <h3 class="text-xs font-black mb-6 uppercase text-blue-600 tracking-widest flex items-center gap-2"><i data-lucide="calendar-plus" class="w-4 h-4"></i> Kelola Jadwal Kuliah Online</h3>
+                <div class="grid lg:grid-cols-2 gap-8">
+                    <form onsubmit="window.saveOnlineClass(event)" class="space-y-4 p-4 bg-slate-50 rounded-2xl border">
+                        <input id="online-subject" type="text" placeholder="Mata Kuliah (Contoh: Anatomi Fisiologi)" required class="w-full p-3 border rounded-xl text-xs font-bold outline-none focus:theme-border">
+                        <input id="online-time" type="text" placeholder="Waktu (Contoh: Senin, 08:00 - 10:00 WIB)" required class="w-full p-3 border rounded-xl text-xs font-bold outline-none focus:theme-border">
+                        <input id="online-link" type="text" placeholder="Link Meeting (Zoom / G-Meet)" required class="w-full p-3 border rounded-xl text-xs font-bold outline-none focus:theme-border">
+                        <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-blue-100 transition active:scale-95">Buat Jadwal Baru</button>
+                    </form>
+                    <div>
+                        <h4 class="text-[9px] font-black text-slate-400 uppercase mb-3 flex items-center gap-2"><i data-lucide="list" class="w-3 h-3"></i> Jadwal Kuliah Saat Ini</h4>
+                        <div id="lecturer-online-list" class="max-h-48 overflow-y-auto custom-scrollbar bg-white rounded-xl border">
+                            <p class="text-[10px] text-slate-400 p-4 text-center italic">Belum ada jadwal kuliah online.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -839,11 +856,11 @@
 
             <div class="grid lg:grid-cols-2 gap-6">
                 <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm border-teal-100">
-                    <h3 class="text-xs font-black mb-4 uppercase theme-text tracking-widest flex items-center gap-2"><i data-lucide="clipboard-check" class="w-4 h-4"></i> Koreksi Tugas</h3>
+                    <h3 class="text-xs font-black mb-4 uppercase theme-text tracking-widest flex items-center gap-2"><i data-lucide="clipboard-check" class="w-4 h-4"></i> Koreksi Tugas Mahasiswa</h3>
                     <div class="overflow-x-auto max-h-[400px] custom-scrollbar"><table class="w-full text-left"><tbody id="lecturer-task-list" class="divide-y"></tbody></table></div>
                 </div>
                 <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-                    <h3 class="text-xs font-black mb-4 uppercase theme-text tracking-widest flex items-center gap-2"><i data-lucide="file-plus" class="w-4 h-4"></i> Kelola Materi</h3>
+                    <h3 class="text-xs font-black mb-4 uppercase theme-text tracking-widest flex items-center gap-2"><i data-lucide="file-plus" class="w-4 h-4"></i> Kelola Materi Kuliah</h3>
                     <form id="mat-upload-form" onsubmit="window.uploadMaterial(event)" class="space-y-3 mb-6 bg-slate-50 p-4 rounded-2xl border">
                         <input type="hidden" id="mat-id">
                         <input id="mat-title" type="text" placeholder="Judul Materi" class="w-full p-3 border rounded-xl text-xs bg-white font-bold outline-none">
@@ -855,7 +872,7 @@
             </div>
 
             <div class="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-                <h3 class="text-xs font-black mb-4 uppercase text-orange-400 tracking-widest flex items-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Monitoring Kehadiran</h3>
+                <h3 class="text-xs font-black mb-4 uppercase text-orange-400 tracking-widest flex items-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Monitoring Kehadiran (Presensi)</h3>
                 <div class="max-h-60 overflow-y-auto custom-scrollbar"><table class="w-full text-left"><tbody id="attendance-list" class="divide-y"></tbody></table></div>
             </div>
         </section>
